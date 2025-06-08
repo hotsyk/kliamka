@@ -22,7 +22,7 @@ jobs:
       - name: Get version from setup.py
         id: version
         run: |
-          VERSION=$(python -c "import ast; print([node.value.s for node in ast.walk(ast.parse(open('setup.py').read())) if isinstance(node, ast.Str) and node.s.count('.') == 2][0])")
+          VERSION=$(python -c "import re; print(re.search(r'version=[\"\\']([^\"\\']*)[\"\\'\\s]*,', open('setup.py').read()).group(1))")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # Check if this version exists as a git tag
