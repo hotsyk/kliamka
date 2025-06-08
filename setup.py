@@ -5,14 +5,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="kliamka",
-    version="0.1.0",
+    version="0.1.2",
     author="Volodymyr Hotsyk",
     author_email="git@hotsyk.com",
     description="Small Python CLI library",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/hotsyk/kliamka",
-    packages=find_packages(where="src"),
+    py_modules=["kliamka"],
     package_dir={"": "src"},
     classifiers=[
         "Development Status :: 3 - Alpha",
