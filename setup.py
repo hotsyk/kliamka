@@ -12,7 +12,8 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/hotsyk/kliamka",
-    packages=find_packages(),
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -27,9 +28,4 @@ setup(
     install_requires=[
         "pydantic>=2.0.0"
     ],
-    entry_points={
-        "console_scripts": [
-            "kliamka=kliamka.cli:main",
-        ],
-    },
 )
