@@ -194,7 +194,9 @@ class TestKliamkaEnums:
             HIGH = "high"
 
         class TestArgs(KliamkaArgClass):
-            priority: Optional[Priority] = KliamkaArg("--priority", "Priority level", None)
+            priority: Optional[Priority] = KliamkaArg(
+                "--priority", "Priority level", None
+            )
 
         parser = TestArgs.create_parser()
 

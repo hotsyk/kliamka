@@ -1,4 +1,4 @@
-.PHONY: install run test lint clean help
+.PHONY: install init-dev run test lint clean help
 
 # Default target
 help:
@@ -28,6 +28,11 @@ lint:
 
 format:
 	ruff format src/ tests/
+
+init-dev:
+	uv venv
+	uv pip install -e .
+	uv pip install pytest mypy ruff
 
 clean:
 	rm -rf build/
