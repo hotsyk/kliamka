@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="kliamka",
-    version="0.1.2",
+    version="0.1.3",
     author="Volodymyr Hotsyk",
     author_email="git@hotsyk.com",
     description="Small Python CLI library",

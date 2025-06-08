@@ -8,14 +8,42 @@ on:
     branches: [main]
 
 jobs:
-  publish:
+  check-version:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version-changed: ${{ steps.version.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from setup.py
+        id: version
+        run: |
+          VERSION=$(python -c "import ast; print([node.value.s for node in ast.walk(ast.parse(open('setup.py').read())) if isinstance(node, ast.Str) and node.s.count('.') == 2][0])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Check if this version exists as a git tag
+          if git tag --list | grep -q "^v$VERSION$"; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version $VERSION already exists as a tag"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "New version $VERSION detected"
+          fi
+
+  publish:
+    needs: check-version
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && needs.check-version.outputs.version-changed == 'true' }}
     environment:
       name: pypi
       url: https://pypi.org/p/kliamka
     permissions:
       id-token: write
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +59,21 @@ jobs:
       - name: Build package
         run: |
           uv build
+
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ needs.check-version.outputs.version }}" -m "Release v${{ needs.check-version.outputs.version }}"
+          git push origin "v${{ needs.check-version.outputs.version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: Release v${{ needs.check-version.outputs.version }}
+          draft: false
+          prerelease: false
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
