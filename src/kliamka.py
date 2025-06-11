@@ -1,11 +1,12 @@
 """Kliamka - Small Python CLI library."""
 
 import argparse
+from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Volodymyr Hotsyk"
 __email__ = "git@hotsyk.com"
 
@@ -17,6 +18,38 @@ class KliamkaError(Exception):
 
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _create_enum_parser(enum_class: Type[Enum]) -> Callable[[str], Enum]:
+    """Create a parser function for enum types that handles both string and integer values."""
+
+    def parse_enum(value: str) -> Enum:
+        for enum_member in enum_class:
+            if enum_member.name.lower() == value.lower():
+                return enum_member
+
+        for enum_member in enum_class:
+            if str(enum_member.value).lower() == value.lower():
+                return enum_member
+
+        try:
+            int_value = int(value)
+            for enum_member in enum_class:
+                if enum_member.value == int_value:
+                    return enum_member
+        except ValueError:
+            pass
+
+        valid_values = []
+        for enum_member in enum_class:
+            valid_values.append(f"{enum_member.name} ({enum_member.value})")
+
+        raise argparse.ArgumentTypeError(
+            f"invalid {enum_class.__name__} value: '{value}'. "
+            f"Valid choices: {', '.join(valid_values)}"
+        )
+
+    return parse_enum
 
 
 class KliamkaArg:
@@ -66,7 +99,18 @@ class KliamkaArgClass(BaseModel):
                         if args:
                             annotation = args[0]
 
-                    kwargs["type"] = annotation if annotation is not None else str
+                    if (
+                        annotation is not None
+                        and isinstance(annotation, type)
+                        and issubclass(annotation, Enum)
+                    ):
+                        kwargs["type"] = _create_enum_parser(annotation)
+                        choices = []
+                        for enum_member in annotation:
+                            choices.append(f"{enum_member.name}({enum_member.value})")
+                        kwargs["metavar"] = "{" + ",".join(choices) + "}"
+                    else:
+                        kwargs["type"] = annotation if annotation is not None else str
 
                 parser.add_argument(field_value.flag, **kwargs)
 

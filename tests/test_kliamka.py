@@ -20,41 +20,29 @@ from kliamka import (
 
 
 class TestKliamkaError:
-    """Test cases for KliamkaError exception."""
-
     def test_kliamka_error_inheritance(self) -> None:
-        """Test that KliamkaError inherits from Exception."""
         assert issubclass(KliamkaError, Exception)
 
     def test_kliamka_error_raise(self) -> None:
-        """Test raising KliamkaError."""
         with pytest.raises(KliamkaError):
             raise KliamkaError("Test error")
 
 
 class TestKliamkaArg:
-    """Test cases for KliamkaArg descriptor."""
-
     def test_kliamka_arg_creation(self) -> None:
-        """Test KliamkaArg initialization."""
         arg = KliamkaArg("--verbose", "Enable verbose output", False)
         assert arg.flag == "--verbose"
         assert arg.help_text == "Enable verbose output"
         assert arg.default is False
 
     def test_kliamka_arg_set_name(self) -> None:
-        """Test KliamkaArg name setting."""
         arg = KliamkaArg("--debug")
         arg.__set_name__(type, "debug")
         assert arg.name == "debug"
 
 
 class TestKliamkaArgClass:
-    """Test cases for KliamkaArgClass."""
-
     def test_create_parser_boolean(self) -> None:
-        """Test parser creation for boolean arguments."""
-
         class TestArgs(KliamkaArgClass):
             verbose: Optional[bool] = KliamkaArg("--verbose", "Enable verbose output")
 
@@ -68,8 +56,6 @@ class TestKliamkaArgClass:
         assert args.verbose is False
 
     def test_create_parser_string(self) -> None:
-        """Test parser creation for string arguments."""
-
         class TestArgs(KliamkaArgClass):
             name: Optional[str] = KliamkaArg("--name", "Your name", "default")
 
@@ -81,8 +67,6 @@ class TestKliamkaArgClass:
         assert args.name == "default"
 
     def test_from_args(self) -> None:
-        """Test creating instance from parsed arguments."""
-
         class TestArgs(KliamkaArgClass):
             verbose: Optional[bool] = KliamkaArg("--verbose", "Enable verbose")
             count: Optional[int] = KliamkaArg("--count", "Count", 1)
@@ -96,11 +80,7 @@ class TestKliamkaArgClass:
 
 
 class TestKliamkaDecorators:
-    """Test cases for kliamka decorators."""
-
     def test_kliamka_cli_decorator(self) -> None:
-        """Test kliamka_cli decorator functionality."""
-
         class TestArgs(KliamkaArgClass):
             test_flag: Optional[bool] = KliamkaArg("--test", "Test flag")
 
@@ -114,8 +94,6 @@ class TestKliamkaDecorators:
 
     @patch("sys.argv", ["test", "--test"])
     def test_kliamka_cli_execution(self) -> None:
-        """Test kliamka_cli decorator execution with mocked args."""
-
         class TestArgs(KliamkaArgClass):
             test_flag: Optional[bool] = KliamkaArg("--test", "Test flag")
 
@@ -131,7 +109,7 @@ class TestKliamkaDecorators:
 
 class TestModuleInfo:
     def test_version_exists(self) -> None:
-        assert __version__ == "0.1.0"
+        assert __version__ == "0.2.0"
 
     def test_all_exports(self) -> None:
         expected_exports = {
@@ -178,12 +156,10 @@ class TestKliamkaEnums:
 
         parser = TestArgs.create_parser()
 
-        # Test with valid enum value
         args = parser.parse_args(["--log-level", "debug"])
         instance = TestArgs.from_args(args)
         assert instance.log_level == LogLevel.DEBUG
 
-        # Test with default value
         args = parser.parse_args([])
         instance = TestArgs.from_args(args)
         assert instance.log_level == LogLevel.INFO
@@ -209,8 +185,6 @@ class TestKliamkaEnums:
         assert instance.priority == Priority.HIGH
 
     def test_multiple_enum_arguments(self) -> None:
-        """Test multiple enum arguments in same class."""
-
         class Format(Enum):
             JSON = "json"
             XML = "xml"
@@ -248,3 +222,165 @@ class TestKliamkaEnums:
 
         test_func()
         assert result_holder[0] == LogLevel.ERROR
+
+
+class TestKliamkaEnumsWithIntegerValues:
+    def test_integer_enum_argument_creation(self) -> None:
+        class Priority(Enum):
+            LOW = 1
+            MEDIUM = 2
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            priority: Priority = KliamkaArg(
+                "--priority", "Priority level", Priority.LOW
+            )
+
+        parser = TestArgs.create_parser()
+        assert isinstance(parser, argparse.ArgumentParser)
+
+    def test_integer_enum_parsing_by_value(self) -> None:
+        class Priority(Enum):
+            LOW = 1
+            MEDIUM = 2
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            priority: Priority = KliamkaArg(
+                "--priority", "Priority level", Priority.LOW
+            )
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args(["--priority", "3"])
+        instance = TestArgs.from_args(args)
+        assert instance.priority == Priority.HIGH
+        assert instance.priority.value == 3
+
+    def test_integer_enum_parsing_by_name(self) -> None:
+        class Priority(Enum):
+            LOW = 1
+            MEDIUM = 2
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            priority: Priority = KliamkaArg(
+                "--priority", "Priority level", Priority.LOW
+            )
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args(["--priority", "HIGH"])
+        instance = TestArgs.from_args(args)
+        assert instance.priority == Priority.HIGH
+        assert instance.priority.value == 3
+
+        args = parser.parse_args(["--priority", "medium"])
+        instance = TestArgs.from_args(args)
+        assert instance.priority == Priority.MEDIUM
+        assert instance.priority.value == 2
+
+    def test_integer_enum_default_value(self) -> None:
+        class Priority(Enum):
+            LOW = 1
+            MEDIUM = 2
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            priority: Priority = KliamkaArg(
+                "--priority", "Priority level", Priority.MEDIUM
+            )
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args([])
+        instance = TestArgs.from_args(args)
+        assert instance.priority == Priority.MEDIUM
+        assert instance.priority.value == 2
+
+    def test_integer_enum_invalid_value_error(self) -> None:
+        """Test error handling for invalid enum values."""
+
+        class Priority(Enum):
+            LOW = 1
+            MEDIUM = 2
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            priority: Priority = KliamkaArg(
+                "--priority", "Priority level", Priority.LOW
+            )
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--priority", "5"])
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--priority", "invalid"])
+
+    def test_mixed_enum_types(self) -> None:
+        class Status(Enum):
+            ACTIVE = "active"
+            INACTIVE = "inactive"
+
+        class Priority(Enum):
+            LOW = 1
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            status: Status = KliamkaArg("--status", "Status", Status.ACTIVE)
+            priority: Priority = KliamkaArg("--priority", "Priority", Priority.LOW)
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args(["--status", "inactive", "--priority", "3"])
+        instance = TestArgs.from_args(args)
+        assert instance.status == Status.INACTIVE
+        assert instance.priority == Priority.HIGH
+        assert instance.priority.value == 3
+
+    def test_optional_integer_enum(self) -> None:
+        """Test optional enum with integer values."""
+
+        class Priority(Enum):
+            LOW = 1
+            MEDIUM = 2
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            priority: Optional[Priority] = KliamkaArg(
+                "--priority", "Priority level", None
+            )
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args([])
+        instance = TestArgs.from_args(args)
+        assert instance.priority is None
+
+        args = parser.parse_args(["--priority", "2"])
+        instance = TestArgs.from_args(args)
+        assert instance.priority == Priority.MEDIUM
+
+    @patch("sys.argv", ["test", "--priority", "1"])
+    def test_kliamka_cli_with_integer_enum(self) -> None:
+        class Priority(Enum):
+            LOW = 1
+            MEDIUM = 2
+            HIGH = 3
+
+        class TestArgs(KliamkaArgClass):
+            priority: Priority = KliamkaArg(
+                "--priority", "Priority level", Priority.MEDIUM
+            )
+
+        result_holder = []
+
+        @kliamka_cli(TestArgs)
+        def test_func(args: TestArgs) -> None:
+            result_holder.append(args.priority)
+
+        test_func()
+        assert result_holder[0] == Priority.LOW
+        assert result_holder[0].value == 1
