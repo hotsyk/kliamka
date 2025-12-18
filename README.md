@@ -119,6 +119,9 @@ make lint
 python examples/basic_usage.py --help
 ```
 
+### Versions
+See [VERSIONS.md](VERSIONS.md) for detailed version history and changelog.
+
 ### Available Make Commands
 
 - `make install` - Install package in development mode
