@@ -1,6 +1,18 @@
 # Kliamka Version History
 
-## 0.3.0 
+## 0.4.0
+
+New features:
+
+- **Benchmark suite** - Performance comparison with other CLI libraries
+  ```bash
+  python benchmark/run_benchmarks.py --table
+  ```
+- Compares kliamka vs argparse, click, and typer
+- Markdown table output for easy documentation
+- Auto-installs pytest-benchmark dependency
+
+## 0.3.0
 
 New features:
 
