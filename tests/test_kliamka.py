@@ -8,6 +8,7 @@ from typing import List, Optional
 from unittest.mock import patch
 
 import pytest
+from pydantic import model_validator
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -15,6 +16,7 @@ from kliamka import (
     KliamkaArg,
     KliamkaArgClass,
     KliamkaError,
+    ParserMeta,
     __version__,
     kliamka_cli,
     kliamka_subcommands,
@@ -41,6 +43,15 @@ class TestKliamkaArg:
         arg = KliamkaArg("--debug")
         arg.__set_name__(type, "debug")
         assert arg.name == "debug"
+
+    def test_kliamka_arg_short_flag(self) -> None:
+        arg = KliamkaArg("--verbose", "Verbose", short="-v")
+        assert arg.short == "-v"
+        assert arg.flag == "--verbose"
+
+    def test_kliamka_arg_mutually_exclusive(self) -> None:
+        arg = KliamkaArg("--json", "JSON output", mutually_exclusive="format")
+        assert arg.mutually_exclusive == "format"
 
 
 class TestKliamkaArgClass:
@@ -111,13 +122,14 @@ class TestKliamkaDecorators:
 
 class TestModuleInfo:
     def test_version_exists(self) -> None:
-        assert __version__ == "0.4.0"
+        assert __version__ == "0.5.0"
 
     def test_all_exports(self) -> None:
         expected_exports = {
             "KliamkaError",
             "KliamkaArg",
             "KliamkaArgClass",
+            "ParserMeta",
             "kliamka_cli",
             "kliamka_subcommands",
             "__version__",
@@ -992,3 +1004,605 @@ class TestKliamkaSubcommands:
 
         test_func()
         assert result_holder[0] == LogLevel.DEBUG
+
+
+# ── #8: Short flags ─────────────────────────────────────────────
+
+
+class TestShortFlags:
+    def test_short_flag_parsing(self) -> None:
+        """Test that short flags like -v work alongside --verbose."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg(
+                "--verbose", "Verbose output", short="-v"
+            )
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args(["-v"])
+        assert args.verbose is True
+
+        args = parser.parse_args(["--verbose"])
+        assert args.verbose is True
+
+        args = parser.parse_args([])
+        assert args.verbose is False
+
+    def test_short_flag_with_value(self) -> None:
+        """Test short flag with a value argument."""
+
+        class TestArgs(KliamkaArgClass):
+            count: Optional[int] = KliamkaArg("--count", "Count", default=1, short="-c")
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args(["-c", "5"])
+        instance = TestArgs.from_args(args)
+        assert instance.count == 5
+
+        args = parser.parse_args(["--count", "10"])
+        instance = TestArgs.from_args(args)
+        assert instance.count == 10
+
+    def test_short_flag_in_help(self) -> None:
+        """Test that short flag appears in help text."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg(
+                "--verbose", "Verbose output", short="-v"
+            )
+
+        parser = TestArgs.create_parser()
+        help_text = parser.format_help()
+        assert "-v" in help_text
+        assert "--verbose" in help_text
+
+    def test_multiple_short_flags(self) -> None:
+        """Test multiple short flags together."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose", short="-v")
+            output: Optional[str] = KliamkaArg("--output", "Output file", short="-o")
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args(["-v", "-o", "out.txt"])
+        instance = TestArgs.from_args(args)
+
+        assert instance.verbose is True
+        assert instance.output == "out.txt"
+
+    @patch("sys.argv", ["test", "-v", "-c", "3"])
+    def test_short_flags_with_decorator(self) -> None:
+        """Test short flags work through the decorator."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose", short="-v")
+            count: Optional[int] = KliamkaArg("--count", "Count", default=1, short="-c")
+
+        result_holder = []
+
+        @kliamka_cli(TestArgs)
+        def test_func(args: TestArgs) -> None:
+            result_holder.append((args.verbose, args.count))
+
+        test_func()
+        assert result_holder[0] == (True, 3)
+
+
+# ── #9: Help customization ──────────────────────────────────────
+
+
+class TestHelpCustomization:
+    def test_custom_prog(self) -> None:
+        """Test custom program name in help."""
+
+        class TestArgs(KliamkaArgClass):
+            """My cool app."""
+
+            parser_meta = ParserMeta(prog="myapp")
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+        assert parser.prog == "myapp"
+        assert "myapp" in parser.format_usage()
+
+    def test_custom_epilog(self) -> None:
+        """Test custom epilog text."""
+
+        class TestArgs(KliamkaArgClass):
+            """Main description."""
+
+            parser_meta = ParserMeta(epilog="See https://example.com for more info.")
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+        assert parser.epilog == "See https://example.com for more info."
+        help_text = parser.format_help()
+        assert "https://example.com" in help_text
+
+    def test_custom_usage(self) -> None:
+        """Test custom usage string."""
+
+        class TestArgs(KliamkaArgClass):
+            parser_meta = ParserMeta(usage="myapp [options] FILE")
+            filename: str = KliamkaArg("filename", "Input file")
+
+        parser = TestArgs.create_parser()
+        assert "myapp [options] FILE" in parser.format_usage()
+
+    def test_docstring_as_description(self) -> None:
+        """Test that class docstring is used as description."""
+
+        class TestArgs(KliamkaArgClass):
+            """Process files with advanced options."""
+
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+        assert parser.description == "Process files with advanced options."
+
+    def test_all_customizations_together(self) -> None:
+        """Test prog, usage, epilog, and description together."""
+
+        class TestArgs(KliamkaArgClass):
+            """My app description."""
+
+            parser_meta = ParserMeta(
+                prog="myapp",
+                usage="myapp [-v] FILE",
+                epilog="Example: myapp -v test.txt",
+            )
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose", short="-v")
+
+        parser = TestArgs.create_parser()
+        help_text = parser.format_help()
+        assert "myapp" in help_text
+        assert "myapp [-v] FILE" in help_text
+        assert "Example: myapp -v test.txt" in help_text
+
+
+# ── #10: Mutually exclusive argument groups ──────────────────────
+
+
+class TestMutuallyExclusiveGroups:
+    def test_mutually_exclusive_basic(self) -> None:
+        """Test that mutually exclusive args cannot be used together."""
+
+        class TestArgs(KliamkaArgClass):
+            json_out: Optional[bool] = KliamkaArg(
+                "--json", "JSON output", mutually_exclusive="format"
+            )
+            csv_out: Optional[bool] = KliamkaArg(
+                "--csv", "CSV output", mutually_exclusive="format"
+            )
+
+        parser = TestArgs.create_parser()
+
+        # Each alone works
+        args = parser.parse_args(["--json"])
+        assert args.json is True
+
+        args = parser.parse_args(["--csv"])
+        assert args.csv is True
+
+        # Both together should fail
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--json", "--csv"])
+
+    def test_mutually_exclusive_with_values(self) -> None:
+        """Test mutual exclusion with value arguments."""
+
+        class TestArgs(KliamkaArgClass):
+            output_json: Optional[str] = KliamkaArg(
+                "--json-file",
+                "JSON output file",
+                mutually_exclusive="output",
+            )
+            output_csv: Optional[str] = KliamkaArg(
+                "--csv-file",
+                "CSV output file",
+                mutually_exclusive="output",
+            )
+
+        parser = TestArgs.create_parser()
+
+        args = parser.parse_args(["--json-file", "out.json"])
+        instance = TestArgs.from_args(args)
+        assert instance.output_json == "out.json"
+        assert instance.output_csv is None
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--json-file", "a.json", "--csv-file", "b.csv"])
+
+    def test_mutually_exclusive_with_regular_args(self) -> None:
+        """Test exclusive group mixed with regular arguments."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+            json_out: Optional[bool] = KliamkaArg(
+                "--json", "JSON output", mutually_exclusive="format"
+            )
+            xml_out: Optional[bool] = KliamkaArg(
+                "--xml", "XML output", mutually_exclusive="format"
+            )
+
+        parser = TestArgs.create_parser()
+
+        # Regular + one exclusive works
+        args = parser.parse_args(["--verbose", "--json"])
+        instance = TestArgs.from_args(args)
+        assert instance.verbose is True
+        assert instance.json_out is True
+        assert instance.xml_out is False
+
+    def test_multiple_exclusive_groups(self) -> None:
+        """Test multiple independent exclusive groups."""
+
+        class TestArgs(KliamkaArgClass):
+            json_out: Optional[bool] = KliamkaArg(
+                "--json", "JSON", mutually_exclusive="format"
+            )
+            csv_out: Optional[bool] = KliamkaArg(
+                "--csv", "CSV", mutually_exclusive="format"
+            )
+            quiet: Optional[bool] = KliamkaArg(
+                "--quiet", "Quiet", mutually_exclusive="verbosity"
+            )
+            debug: Optional[bool] = KliamkaArg(
+                "--debug", "Debug", mutually_exclusive="verbosity"
+            )
+
+        parser = TestArgs.create_parser()
+
+        # One from each group works
+        args = parser.parse_args(["--json", "--quiet"])
+        instance = TestArgs.from_args(args)
+        assert instance.json_out is True
+        assert instance.quiet is True
+
+        # Two from same group fails
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--quiet", "--debug"])
+
+
+# ── #11: Pydantic validation ────────────────────────────────────
+
+
+class TestPydanticValidation:
+    def test_range_validation(self) -> None:
+        """Test that Pydantic validators work for range checks."""
+
+        class TestArgs(KliamkaArgClass):
+            port: Optional[int] = KliamkaArg("--port", "Port number", default=8080)
+
+            @model_validator(mode="after")
+            def validate_port(self) -> "TestArgs":
+                if self.port is not None and not (1 <= self.port <= 65535):
+                    raise ValueError(f"Port must be 1-65535, got {self.port}")
+                return self
+
+        parser = TestArgs.create_parser()
+
+        # Valid port
+        args = parser.parse_args(["--port", "3000"])
+        instance = TestArgs.from_args(args)
+        assert instance.port == 3000
+
+        # Invalid port
+        args = parser.parse_args(["--port", "99999"])
+        with pytest.raises(Exception, match="Port must be 1-65535"):
+            TestArgs.from_args(args)
+
+    def test_cross_field_validation(self) -> None:
+        """Test validation that depends on multiple fields."""
+
+        class TestArgs(KliamkaArgClass):
+            min_val: Optional[int] = KliamkaArg("--min", "Minimum", default=0)
+            max_val: Optional[int] = KliamkaArg("--max", "Maximum", default=100)
+
+            @model_validator(mode="after")
+            def validate_range(self) -> "TestArgs":
+                if (
+                    self.min_val is not None
+                    and self.max_val is not None
+                    and self.min_val > self.max_val
+                ):
+                    raise ValueError(
+                        f"min ({self.min_val}) must be <= max ({self.max_val})"
+                    )
+                return self
+
+        parser = TestArgs.create_parser()
+
+        # Valid
+        args = parser.parse_args(["--min", "10", "--max", "50"])
+        instance = TestArgs.from_args(args)
+        assert instance.min_val == 10
+        assert instance.max_val == 50
+
+        # Invalid
+        args = parser.parse_args(["--min", "100", "--max", "10"])
+        with pytest.raises(Exception, match="min.*must be <= max"):
+            TestArgs.from_args(args)
+
+    def test_string_pattern_validation(self) -> None:
+        """Test string pattern validation."""
+        import re
+
+        class TestArgs(KliamkaArgClass):
+            email: Optional[str] = KliamkaArg("--email", "Email address")
+
+            @model_validator(mode="after")
+            def validate_email(self) -> "TestArgs":
+                if self.email and not re.match(r"^[^@]+@[^@]+\.[^@]+$", self.email):
+                    raise ValueError(f"Invalid email: {self.email}")
+                return self
+
+        parser = TestArgs.create_parser()
+
+        # Valid
+        args = parser.parse_args(["--email", "user@example.com"])
+        instance = TestArgs.from_args(args)
+        assert instance.email == "user@example.com"
+
+        # Invalid
+        args = parser.parse_args(["--email", "not-an-email"])
+        with pytest.raises(Exception, match="Invalid email"):
+            TestArgs.from_args(args)
+
+
+# ── #12: --version flag ─────────────────────────────────────────
+
+
+class TestVersionFlag:
+    def test_version_flag(self) -> None:
+        """Test that --version prints version and exits."""
+
+        class TestArgs(KliamkaArgClass):
+            parser_meta = ParserMeta(version="myapp 1.2.3")
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["--version"])
+        assert exc_info.value.code == 0
+
+    def test_version_flag_output(self, capsys) -> None:
+        """Test --version output content."""
+
+        class TestArgs(KliamkaArgClass):
+            parser_meta = ParserMeta(version="myapp 2.0.0")
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--version"])
+
+        captured = capsys.readouterr()
+        assert "myapp 2.0.0" in captured.out
+
+    def test_no_version_flag_by_default(self) -> None:
+        """Test that --version is not added without version."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+
+        # --version should be unrecognized
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["--version"])
+        assert exc_info.value.code != 0
+
+    def test_version_with_subcommands(self) -> None:
+        """Test --version with subcommands."""
+
+        class MainArgs(KliamkaArgClass):
+            parser_meta = ParserMeta(version="mycli 3.0.0")
+
+        class AddArgs(KliamkaArgClass):
+            name: str = KliamkaArg("name", "Name", positional=True)
+
+        @kliamka_subcommands(MainArgs, {"add": AddArgs})
+        def main(args, command, cmd_args):
+            pass
+
+        assert hasattr(main, "_kliamka_main_class")
+
+
+# ── #13: Error handling tests ────────────────────────────────────
+
+
+class TestErrorHandling:
+    def test_missing_required_positional(self) -> None:
+        """Test error when required positional arg is missing."""
+
+        class TestArgs(KliamkaArgClass):
+            filename: str = KliamkaArg("filename", "Input file", positional=True)
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args([])
+        assert exc_info.value.code != 0
+
+    def test_invalid_int_value(self) -> None:
+        """Test error for non-integer value to int argument."""
+
+        class TestArgs(KliamkaArgClass):
+            count: Optional[int] = KliamkaArg("--count", "Count", default=1)
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--count", "abc"])
+
+    def test_invalid_float_value(self) -> None:
+        """Test error for non-float value to float argument."""
+
+        class TestArgs(KliamkaArgClass):
+            rate: Optional[float] = KliamkaArg("--rate", "Rate", default=1.0)
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--rate", "not-a-number"])
+
+    def test_unknown_flag(self) -> None:
+        """Test error for unrecognized flags."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--unknown-flag"])
+
+    def test_missing_subcommand(self) -> None:
+        """Test error when no subcommand is provided."""
+
+        class MainArgs(KliamkaArgClass):
+            pass
+
+        class AddArgs(KliamkaArgClass):
+            name: str = KliamkaArg("name", "Name", positional=True)
+
+        parser = argparse.ArgumentParser()
+        from kliamka import _populate_parser
+
+        _populate_parser(parser, MainArgs)
+        subparsers = parser.add_subparsers(dest="_command", required=True)
+        sub = subparsers.add_parser("add")
+        _populate_parser(sub, AddArgs)
+
+        with pytest.raises(SystemExit):
+            parser.parse_args([])
+
+    def test_invalid_enum_value(self) -> None:
+        """Test error for invalid enum value."""
+
+        class Color(Enum):
+            RED = "red"
+            BLUE = "blue"
+
+        class TestArgs(KliamkaArgClass):
+            color: Color = KliamkaArg("--color", "Color", Color.RED)
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--color", "green"])
+
+    def test_missing_flag_value(self) -> None:
+        """Test error when flag expects value but none given."""
+
+        class TestArgs(KliamkaArgClass):
+            name: Optional[str] = KliamkaArg("--name", "Name")
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--name"])
+
+    def test_extra_positional_args(self) -> None:
+        """Test error for too many positional arguments."""
+
+        class TestArgs(KliamkaArgClass):
+            filename: str = KliamkaArg("filename", "Input file", positional=True)
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit):
+            parser.parse_args(["file1.txt", "file2.txt"])
+
+    def test_pydantic_validation_error_message(self) -> None:
+        """Test that Pydantic validation errors contain useful info."""
+
+        class TestArgs(KliamkaArgClass):
+            port: Optional[int] = KliamkaArg("--port", "Port", default=80)
+
+            @model_validator(mode="after")
+            def check_port(self) -> "TestArgs":
+                if self.port is not None and self.port < 1:
+                    raise ValueError("Port must be positive")
+                return self
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args(["--port", "0"])
+
+        with pytest.raises(Exception, match="Port must be positive"):
+            TestArgs.from_args(args)
+
+    def test_bool_flag_rejects_value(self) -> None:
+        """Test that bool flags don't accept values like --verbose=yes."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        parser = TestArgs.create_parser()
+
+        # store_true doesn't accept =value syntax
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--verbose=yes"])
+
+
+# ── #14: Programmatic argv ──────────────────────────────────────
+
+
+class TestProgrammaticArgv:
+    def test_custom_argv_in_decorator(self) -> None:
+        """Test passing custom argv to kliamka_cli."""
+
+        class TestArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose", short="-v")
+            name: Optional[str] = KliamkaArg("--name", "Name", default="world")
+
+        result_holder = []
+
+        @kliamka_cli(TestArgs, argv=["-v", "--name", "test"])
+        def test_func(args: TestArgs) -> None:
+            result_holder.append((args.verbose, args.name))
+
+        test_func()
+        assert result_holder[0] == (True, "test")
+
+    def test_custom_argv_in_subcommands(self) -> None:
+        """Test passing custom argv to kliamka_subcommands."""
+
+        class MainArgs(KliamkaArgClass):
+            verbose: Optional[bool] = KliamkaArg("--verbose", "Verbose")
+
+        class AddArgs(KliamkaArgClass):
+            name: str = KliamkaArg("name", "Name", positional=True)
+
+        result_holder = []
+
+        @kliamka_subcommands(
+            MainArgs,
+            {"add": AddArgs},
+            argv=["--verbose", "add", "item1"],
+        )
+        def test_func(args, command, cmd_args):
+            result_holder.append((args.verbose, command, cmd_args.name))
+
+        test_func()
+        assert result_holder[0] == (True, "add", "item1")
+
+    def test_empty_argv(self) -> None:
+        """Test empty argv uses defaults."""
+
+        class TestArgs(KliamkaArgClass):
+            count: Optional[int] = KliamkaArg("--count", "Count", default=42)
+
+        result_holder = []
+
+        @kliamka_cli(TestArgs, argv=[])
+        def test_func(args: TestArgs) -> None:
+            result_holder.append(args.count)
+
+        test_func()
+        assert result_holder[0] == 42

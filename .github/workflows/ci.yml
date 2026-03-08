@@ -47,3 +47,13 @@ jobs:
         run: |
           source .venv/bin/activate
           pytest tests/ -v --tb=short
+
+      - name: Install benchmark dependencies
+        run: |
+          source .venv/bin/activate
+          pip install pytest-benchmark click typer || true
+
+      - name: Run benchmarks
+        run: |
+          source .venv/bin/activate
+          pytest benchmark/ -v --tb=short --benchmark-disable || true

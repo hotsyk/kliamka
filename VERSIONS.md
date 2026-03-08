@@ -1,5 +1,55 @@
 # Kliamka Version History
 
+## 0.5.0
+
+### New features
+
+- **Short flags** — define `-v` alongside `--verbose` via `short="-v"` parameter
+  ```python
+  verbose: bool | None = KliamkaArg("--verbose", "Verbose", short="-v")
+  ```
+
+- **Help customization** — `ParserMeta` class for program name, usage, epilog, and `--version`
+  ```python
+  parser_meta = ParserMeta(prog="myapp", version="myapp 1.0", epilog="See docs.")
+  ```
+
+- **`--version` flag** — automatically added when `version` is set in `ParserMeta`
+
+- **Mutually exclusive argument groups** — prevents conflicting flags
+  ```python
+  json_out: bool | None = KliamkaArg("--json", "JSON", mutually_exclusive="format")
+  csv_out: bool | None = KliamkaArg("--csv", "CSV", mutually_exclusive="format")
+  ```
+
+- **Pydantic validation** — `@model_validator` for range checks, cross-field validation, regex
+  ```python
+  @model_validator(mode="after")
+  def validate_port(self) -> "MyArgs":
+      if self.port is not None and not (1 <= self.port <= 65535):
+          raise ValueError(f"Port must be 1-65535, got {self.port}")
+      return self
+  ```
+
+- **Programmatic argv** — pass custom argument lists for testing/embedding
+  ```python
+  @kliamka_cli(MyArgs, argv=["--verbose", "--count", "5"])
+  ```
+
+- **PEP 561 `py.typed` marker** — ships type information for downstream consumers
+
+### Improvements
+
+- Migrated from `setup.py` to `pyproject.toml` (PEP 621)
+- Eliminated major code duplication between `create_parser()` and `_populate_parser()`
+- Added `__all__` to prevent internal helpers from leaking as public API
+- Fixed version mismatch (`__version__` was `"0.2.0"` while package was `0.4.0`)
+- Replaced fragile bool type detection with robust `_is_bool_annotation()` helper
+- Makefile uses `.venv/bin/` prefix for reliable tool invocations
+- Benchmarks now run in GitHub Actions CI
+- README fully rewritten to document all features
+- Test count: 60 → 96 (+36 new tests)
+
 ## 0.4.0
 
 New features:
