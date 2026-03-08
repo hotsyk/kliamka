@@ -1,20 +1,21 @@
 """Tests for kliamka module."""
 
 import argparse
-import pytest
 import sys
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 from unittest.mock import patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from kliamka import (
-    KliamkaError,
-    __version__,
     KliamkaArg,
     KliamkaArgClass,
+    KliamkaError,
+    __version__,
     kliamka_cli,
     kliamka_subcommands,
 )
@@ -110,7 +111,7 @@ class TestKliamkaDecorators:
 
 class TestModuleInfo:
     def test_version_exists(self) -> None:
-        assert __version__ == "0.2.0"
+        assert __version__ == "0.4.0"
 
     def test_all_exports(self) -> None:
         expected_exports = {
@@ -118,6 +119,7 @@ class TestModuleInfo:
             "KliamkaArg",
             "KliamkaArgClass",
             "kliamka_cli",
+            "kliamka_subcommands",
             "__version__",
             "__author__",
             "__email__",

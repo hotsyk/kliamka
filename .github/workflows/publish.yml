@@ -19,10 +19,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version from setup.py
+      - name: Get version from pyproject.toml
         id: version
         run: |
-          VERSION=$(python -c "import re; print(re.search(r'version=[\"\\']([^\"\\']*)[\"\\'\\s]*,', open('setup.py').read()).group(1))")
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # Check if this version exists as a git tag

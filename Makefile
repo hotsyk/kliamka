@@ -1,33 +1,36 @@
-.PHONY: install init-dev run test lint clean help
+.PHONY: install init-dev run test lint format clean help
+
+VENV := .venv/bin
 
 # Default target
 help:
 	@echo "Available targets:"
 	@echo "  install  - Install the package in development mode"
+	@echo "  init-dev - Initialize development environment with uv"
 	@echo "  run      - Run the CLI application"
 	@echo "  test     - Run tests with pytest"
 	@echo "  lint     - Run type checking and linting"
+	@echo "  format   - Format code with ruff"
 	@echo "  clean    - Clean build artifacts"
 	@echo "  help     - Show this help message"
 
 install:
-	pip install -e .
-	pip install pytest mypy ruff
+	$(VENV)/pip install -e .
+	$(VENV)/pip install pytest mypy ruff
 
 run:
-	python -m src.kliamka
+	$(VENV)/python -m src.kliamka
 
 test:
-	pytest tests/ -v
+	$(VENV)/pytest tests/ -v
 
 lint:
-	mypy src/
-	ruff check src/ tests/
-	ruff format --check src/ tests/
-
+	$(VENV)/mypy src/
+	$(VENV)/ruff check src/ tests/
+	$(VENV)/ruff format --check src/ tests/
 
 format:
-	ruff format src/ tests/
+	$(VENV)/ruff format src/ tests/
 
 init-dev:
 	uv venv
