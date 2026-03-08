@@ -6,8 +6,6 @@ A small Python CLI library that provides Pydantic-based argument parser with typ
 
 ![PyPI - Version](https://img.shields.io/pypi/v/kliamka)
 
-For detailed specifications, see [CLAUDE.md](CLAUDE.md).
-
 ## Features
 
 - **Type-safe CLI arguments** with Pydantic validation
