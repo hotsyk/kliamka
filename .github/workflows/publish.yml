@@ -56,9 +56,15 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Build package
+      - name: Install smoke test dependencies
         run: |
-          uv build
+          uv venv --python 3.12
+          uv pip install pytest
+
+      - name: Smoke test built artifacts
+        run: |
+          source .venv/bin/activate
+          pytest tests/test_packaging_smoke.py -v --tb=short -m packaging
 
       - name: Create Git tag
         run: |

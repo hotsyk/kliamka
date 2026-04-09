@@ -1,7 +1,8 @@
 """Tests for kliamka module."""
 
 import argparse
-import sys
+import importlib
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
@@ -9,8 +10,6 @@ from unittest.mock import patch
 
 import pytest
 from pydantic import model_validator
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from kliamka import (
     KliamkaArg,
@@ -20,6 +19,8 @@ from kliamka import (
     __version__,
     kliamka_cli,
     kliamka_subcommands,
+    register_converter,
+    unregister_converter,
 )
 
 
@@ -124,6 +125,27 @@ class TestModuleInfo:
     def test_version_exists(self) -> None:
         assert __version__ == "0.5.0"
 
+    def test_imports_use_local_src_tree(self) -> None:
+        kliamka_module = importlib.import_module("kliamka")
+        module_path = getattr(kliamka_module, "__file__", "")
+
+        assert module_path
+        assert "site-packages" not in module_path
+        assert (
+            Path(module_path)
+            .resolve()
+            .is_relative_to(Path(__file__).resolve().parents[1] / "src")
+        )
+
+    def test_public_import_uses_package_api(self) -> None:
+        kliamka_module = importlib.import_module("kliamka")
+
+        assert KliamkaArg is kliamka_module.KliamkaArg
+        assert KliamkaArgClass is kliamka_module.KliamkaArgClass
+        assert kliamka_cli is kliamka_module.kliamka_cli
+        assert kliamka_subcommands is kliamka_module.kliamka_subcommands
+        assert kliamka_module.__version__ == __version__
+
     def test_all_exports(self) -> None:
         expected_exports = {
             "KliamkaError",
@@ -137,15 +159,10 @@ class TestModuleInfo:
             "__email__",
         }
 
-        import kliamka
+        kliamka_module = importlib.import_module("kliamka")
+        public_exports = set(getattr(kliamka_module, "__all__", ()))
 
-        actual_exports = {
-            name
-            for name in dir(kliamka)
-            if not name.startswith("_") or name.startswith("__")
-        }
-
-        assert expected_exports.issubset(actual_exports)
+        assert expected_exports.issubset(public_exports)
 
 
 class TestKliamkaEnums:
@@ -1291,7 +1308,10 @@ class TestPydanticValidation:
 
         # Invalid port
         args = parser.parse_args(["--port", "99999"])
-        with pytest.raises(Exception, match="Port must be 1-65535"):
+        with pytest.raises(
+            KliamkaError,
+            match=r"Port must be 1-65535, got 99999",
+        ):
             TestArgs.from_args(args)
 
     def test_cross_field_validation(self) -> None:
@@ -1323,7 +1343,10 @@ class TestPydanticValidation:
 
         # Invalid
         args = parser.parse_args(["--min", "100", "--max", "10"])
-        with pytest.raises(Exception, match="min.*must be <= max"):
+        with pytest.raises(
+            KliamkaError,
+            match=r"min \(100\) must be <= max \(10\)",
+        ):
             TestArgs.from_args(args)
 
     def test_string_pattern_validation(self) -> None:
@@ -1348,7 +1371,7 @@ class TestPydanticValidation:
 
         # Invalid
         args = parser.parse_args(["--email", "not-an-email"])
-        with pytest.raises(Exception, match="Invalid email"):
+        with pytest.raises(KliamkaError, match=r"Invalid email: not-an-email"):
             TestArgs.from_args(args)
 
 
@@ -1471,16 +1494,14 @@ class TestErrorHandling:
         class AddArgs(KliamkaArgClass):
             name: str = KliamkaArg("name", "Name", positional=True)
 
-        parser = argparse.ArgumentParser()
-        from kliamka import _populate_parser
+        @kliamka_subcommands(MainArgs, {"add": AddArgs}, argv=[])
+        def test_func(args, command, cmd_args) -> None:
+            pytest.fail("Decorator should exit before invoking the wrapped function")
 
-        _populate_parser(parser, MainArgs)
-        subparsers = parser.add_subparsers(dest="_command", required=True)
-        sub = subparsers.add_parser("add")
-        _populate_parser(sub, AddArgs)
+        with pytest.raises(SystemExit) as exc_info:
+            test_func()
 
-        with pytest.raises(SystemExit):
-            parser.parse_args([])
+        assert exc_info.value.code == 2
 
     def test_invalid_enum_value(self) -> None:
         """Test error for invalid enum value."""
@@ -1534,7 +1555,7 @@ class TestErrorHandling:
         parser = TestArgs.create_parser()
         args = parser.parse_args(["--port", "0"])
 
-        with pytest.raises(Exception, match="Port must be positive"):
+        with pytest.raises(KliamkaError, match=r"Port must be positive"):
             TestArgs.from_args(args)
 
     def test_bool_flag_rejects_value(self) -> None:
@@ -1548,6 +1569,59 @@ class TestErrorHandling:
         # store_true doesn't accept =value syntax
         with pytest.raises(SystemExit):
             parser.parse_args(["--verbose=yes"])
+
+    def test_kliamka_cli_renders_validation_errors_via_argparse(self, capsys) -> None:
+        """Decorator should render model validation errors as CLI parse errors."""
+
+        class TestArgs(KliamkaArgClass):
+            port: Optional[int] = KliamkaArg("--port", "Port", default=80)
+
+            @model_validator(mode="after")
+            def check_port(self) -> "TestArgs":
+                if self.port is not None and self.port < 1:
+                    raise ValueError("Port must be positive")
+                return self
+
+        @kliamka_cli(TestArgs, argv=["--port", "0"])
+        def test_func(args: TestArgs) -> None:
+            pytest.fail("Decorator should exit before invoking the wrapped function")
+
+        with pytest.raises(SystemExit) as exc_info:
+            test_func()
+
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert "error: Port must be positive" in captured.err
+        assert "Value error," not in captured.err
+
+    def test_kliamka_subcommands_renders_validation_errors_via_argparse(
+        self, capsys
+    ) -> None:
+        """Subcommand decorator renders model validation errors as parse errors."""
+
+        class MainArgs(KliamkaArgClass):
+            pass
+
+        class AddArgs(KliamkaArgClass):
+            port: Optional[int] = KliamkaArg("--port", "Port", default=80)
+
+            @model_validator(mode="after")
+            def check_port(self) -> "AddArgs":
+                if self.port is not None and self.port < 1:
+                    raise ValueError("Port must be positive")
+                return self
+
+        @kliamka_subcommands(MainArgs, {"add": AddArgs}, argv=["add", "--port", "0"])
+        def test_func(args, command, cmd_args) -> None:
+            pytest.fail("Decorator should exit before invoking the wrapped function")
+
+        with pytest.raises(SystemExit) as exc_info:
+            test_func()
+
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert "error: Port must be positive" in captured.err
+        assert "Value error," not in captured.err
 
 
 # ── #14: Programmatic argv ──────────────────────────────────────
@@ -1606,3 +1680,189 @@ class TestProgrammaticArgv:
 
         test_func()
         assert result_holder[0] == 42
+
+
+# ── #15: Custom type converters ─────────────────────────────────
+
+
+@pytest.fixture
+def clean_converter_registry():
+    """Snapshot/restore the global converter registry for test isolation."""
+    from kliamka._converters import _CONVERTERS
+
+    snapshot = dict(_CONVERTERS)
+    try:
+        yield
+    finally:
+        _CONVERTERS.clear()
+        _CONVERTERS.update(snapshot)
+
+
+class TestCustomConverters:
+    def test_per_arg_converter_path(self, tmp_path) -> None:
+        """Per-argument converter for pathlib.Path."""
+
+        class TestArgs(KliamkaArgClass):
+            target: Path = KliamkaArg(
+                "--target",
+                "Target path",
+                converter=lambda s: Path(s).expanduser().resolve(),
+            )
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args(["--target", str(tmp_path)])
+        instance = TestArgs.from_args(args)
+
+        assert isinstance(instance.target, Path)
+        assert instance.target == tmp_path.resolve()
+
+    def test_registered_datetime_converter(self, clean_converter_registry) -> None:
+        """Global registry converter for datetime.datetime."""
+        register_converter(datetime, datetime.fromisoformat)
+
+        class TestArgs(KliamkaArgClass):
+            since: datetime = KliamkaArg("--since", "Start timestamp")
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args(["--since", "2024-01-15T12:30:00"])
+        instance = TestArgs.from_args(args)
+
+        assert isinstance(instance.since, datetime)
+        assert instance.since == datetime(2024, 1, 15, 12, 30, 0)
+
+    def test_per_arg_overrides_registered(self, clean_converter_registry) -> None:
+        """Explicit per-arg converter beats a registered global one."""
+        register_converter(datetime, datetime.fromisoformat)
+
+        class TestArgs(KliamkaArgClass):
+            when: datetime = KliamkaArg(
+                "--when",
+                "Timestamp",
+                converter=lambda s: datetime.strptime(s, "%Y/%m/%d"),
+            )
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args(["--when", "2024/01/15"])
+        instance = TestArgs.from_args(args)
+
+        assert instance.when == datetime(2024, 1, 15)
+
+    def test_converter_via_env_var(self, monkeypatch, clean_converter_registry) -> None:
+        """Registered converter applies to env var fallback."""
+        register_converter(datetime, datetime.fromisoformat)
+        monkeypatch.setenv("TS", "2024-06-01T08:00:00")
+
+        class TestArgs(KliamkaArgClass):
+            ts: Optional[datetime] = KliamkaArg("--ts", "Timestamp", env="TS")
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args([])
+        instance = TestArgs.from_args(args)
+
+        assert instance.ts == datetime(2024, 6, 1, 8, 0, 0)
+
+    def test_converter_for_list_element(
+        self, clean_converter_registry, tmp_path
+    ) -> None:
+        """Registered element converter applies to every item in List[T]."""
+        register_converter(Path, Path)
+
+        class TestArgs(KliamkaArgClass):
+            files: List[Path] = KliamkaArg("--files", "Input files")
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args(["--files", "a.txt", "b.txt"])
+        instance = TestArgs.from_args(args)
+
+        assert all(isinstance(p, Path) for p in instance.files)
+        assert [p.name for p in instance.files] == ["a.txt", "b.txt"]
+
+    def test_converter_error_becomes_argparse_error(self, capsys) -> None:
+        """Bad input via converter should produce a clean argparse error."""
+
+        def strict_port(s: str) -> int:
+            n = int(s)
+            if not (1 <= n <= 65535):
+                raise ValueError(f"out of range: {n}")
+            return n
+
+        class TestArgs(KliamkaArgClass):
+            port: int = KliamkaArg("--port", "Port", converter=strict_port)
+
+        parser = TestArgs.create_parser()
+
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["--port", "99999"])
+        assert exc_info.value.code == 2
+
+        captured = capsys.readouterr()
+        assert "invalid" in captured.err
+        assert "99999" in captured.err
+        assert "Traceback" not in captured.err
+
+    def test_positional_with_converter(self, tmp_path) -> None:
+        """Positional argument honors a per-arg converter."""
+
+        class TestArgs(KliamkaArgClass):
+            target: Path = KliamkaArg(
+                "target",
+                "Target path",
+                positional=True,
+                converter=lambda s: Path(s).resolve(),
+            )
+
+        parser = TestArgs.create_parser()
+        args = parser.parse_args([str(tmp_path)])
+        instance = TestArgs.from_args(args)
+
+        assert isinstance(instance.target, Path)
+        assert instance.target == tmp_path.resolve()
+
+    @patch("sys.argv", ["test", "touch", "--path", "/tmp/foo"])
+    def test_subcommand_with_converter(self) -> None:
+        """Subcommand argument honors a per-arg converter."""
+
+        class MainArgs(KliamkaArgClass):
+            pass
+
+        class TouchArgs(KliamkaArgClass):
+            path: Path = KliamkaArg("--path", "Target", converter=lambda s: Path(s))
+
+        result_holder = []
+
+        @kliamka_subcommands(MainArgs, {"touch": TouchArgs})
+        def run(args, command, cmd_args) -> None:
+            result_holder.append((command, cmd_args.path))
+
+        run()
+        assert result_holder[0][0] == "touch"
+        assert isinstance(result_holder[0][1], Path)
+        assert result_holder[0][1] == Path("/tmp/foo")
+
+    def test_unregister_reverts_behavior(self, clean_converter_registry) -> None:
+        """unregister_converter makes behavior revert to annotation fallback."""
+        sentinel_calls: list[str] = []
+
+        def tagged(s: str) -> datetime:
+            sentinel_calls.append(s)
+            return datetime.fromisoformat(s)
+
+        register_converter(datetime, tagged)
+
+        class TestArgs(KliamkaArgClass):
+            when: datetime = KliamkaArg("--when", "When")
+
+        parser = TestArgs.create_parser()
+        parser.parse_args(["--when", "2024-01-01T00:00:00"])
+        assert len(sentinel_calls) == 1
+
+        unregister_converter(datetime)
+
+        # After unregister, no converter should be resolved; the fallback
+        # becomes the raw annotation (datetime), which argparse calls
+        # directly. datetime(str) is invalid, so argparse rejects it.
+        parser2 = TestArgs.create_parser()
+        with pytest.raises(SystemExit):
+            parser2.parse_args(["--when", "2024-01-01T00:00:00"])
+        # Tagged converter must not have been called the second time.
+        assert len(sentinel_calls) == 1

@@ -46,7 +46,12 @@ jobs:
       - name: Test with pytest
         run: |
           source .venv/bin/activate
-          pytest tests/ -v --tb=short
+          pytest tests/ -v --tb=short -m "not packaging"
+
+      - name: Packaging smoke test
+        run: |
+          source .venv/bin/activate
+          make test-package
 
       - name: Install benchmark dependencies
         run: |

@@ -4,6 +4,8 @@
 
 A small Python CLI library that provides Pydantic-based argument parser with type safety.
 
+For detailed specifications, see `CLAUDE.md`.
+
 ![PyPI - Version](https://img.shields.io/pypi/v/kliamka)
 
 ## Features
@@ -20,6 +22,7 @@ A small Python CLI library that provides Pydantic-based argument parser with typ
 - **Mutually exclusive groups** — e.g. `--json` vs `--csv`
 - **`--version` flag** — automatic version display
 - **Help customization** — program name, usage, epilog
+- **Custom type converters** — per-argument `converter=` or a global `register_converter(type, fn)` registry
 - **Pydantic validators** — range checks, cross-field validation, regex patterns
 - **Programmatic argv** — pass custom argument lists for testing/embedding
 - **PEP 561 compatible** — ships `py.typed` marker
@@ -209,6 +212,55 @@ class MyArgs(KliamkaArgClass):
 
 `--json` and `--csv` cannot be used together.
 
+### Custom Type Converters
+
+kliamka has built-in support for `bool`, `int`, `float`, `str`, `Enum`, and `List[...]`. For anything else — `pathlib.Path`, `datetime`, `uuid.UUID`, custom classes — you can plug in a converter.
+
+Two ways, first match wins:
+
+**1. Per-argument converter** (explicit, scoped):
+
+```python
+from pathlib import Path
+from kliamka import KliamkaArg, KliamkaArgClass
+
+class MyArgs(KliamkaArgClass):
+    config: Path = KliamkaArg(
+        "--config",
+        "Path to config file",
+        converter=lambda s: Path(s).expanduser().resolve(),
+    )
+```
+
+**2. Global registry** (reusable across all arguments of a given type):
+
+```python
+from datetime import datetime
+from kliamka import KliamkaArgClass, KliamkaArg, register_converter
+
+register_converter(datetime, datetime.fromisoformat)
+
+class MyArgs(KliamkaArgClass):
+    since: datetime = KliamkaArg("--since", "Start timestamp")
+    until: datetime = KliamkaArg("--until", "End timestamp")
+```
+
+**Resolution order** (first match wins, used by both CLI and env var parsing):
+
+1. Explicit `KliamkaArg(converter=...)` on the field
+2. A type registered via `register_converter(...)`
+3. `Enum` subclass — built-in enum parser
+4. `List[T]` — recursive lookup on element type `T`
+5. Fallback: the annotation itself (e.g. `int`, `float`, `str`)
+
+Converters can raise `ValueError` or `TypeError` on invalid input; kliamka wraps that into a clean CLI error like:
+
+```text
+error: argument --port: invalid int value: '99999' (out of range: 99999)
+```
+
+Use `unregister_converter(type)` to remove a registered converter. See [`examples/custom_converters.py`](examples/custom_converters.py) for a runnable demo.
+
 ### Pydantic Validation
 
 ```python
@@ -223,6 +275,18 @@ class MyArgs(KliamkaArgClass):
             raise ValueError(f"Port must be 1-65535, got {self.port}")
         return self
 ```
+
+When validation fails during `from_args()`, kliamka raises `KliamkaError` with a simplified message. When validation fails inside `@kliamka_cli` or `@kliamka_subcommands`, the library renders that message through `argparse`, so users see standard CLI output such as:
+
+```text
+error: Port must be 1-65535, got 99999
+```
+
+## Documentation
+
+- `CLAUDE.md` — source of truth for project specifications
+- `docs/TODO.md` — development log and task tracker
+- `docs/20260408_product_requirements.md` — current product requirements and roadmap baseline
 
 ## Development
 
@@ -245,10 +309,59 @@ make install
 | Command        | Description                       |
 |----------------|-----------------------------------|
 | `make install` | Install package in development mode |
-| `make test`    | Run tests with pytest             |
+| `make test`    | Run unit tests with pytest (`-m "not packaging"`) |
+| `make test-package` | Build wheel/sdist and run packaging smoke tests |
+| `make test-all` | Run the full pytest suite, including packaging smoke coverage |
+| `make test-docker VERSION=3.11` | Run tests in Docker for a specific Python version |
+| `make test-docker-all` | Run Docker test matrix for Python 3.11–3.14 |
 | `make lint`    | Run type checking and linting     |
 | `make format`  | Format code with ruff             |
 | `make clean`   | Clean build artifacts             |
+
+### Packaging and Compatibility Workflow
+
+The repository now uses a modular package layout internally. The public import surface remains `from kliamka import ...`, while the active implementation lives under `src/kliamka/` and the legacy top-level module path is kept as a compatibility facade.
+
+Validation failures are also split more cleanly by context:
+- `KliamkaArgClass.from_args()` raises `KliamkaError` with simplified, joined validation messages for programmatic use.
+- `@kliamka_cli` and `@kliamka_subcommands` hand those messages back to `argparse`, so CLI users still see standard `error:` output.
+
+GitHub Actions verifies both compatibility and packaging confidence on Python 3.11, 3.12, 3.13, and 3.14. The default local workflow mirrors that split:
+- `make test` for unit coverage excluding packaging smoke markers
+- `make test-package` for built wheel/sdist installation smoke tests
+- `make test-all` for the complete pytest suite
+
+### Docker Test Matrix
+
+To mirror the pytest compatibility check locally across interpreter versions, use `Dockerfile.test`.
+
+Run the full local Docker matrix:
+
+```bash
+make test-docker-all
+```
+
+This target runs four isolated Docker test jobs sequentially for Python 3.11, 3.12, 3.13, and 3.14.
+
+Run one Dockerized test job for a specific Python version:
+
+```bash
+make test-docker VERSION=3.12
+```
+
+An optional `docker-compose.test.yml` file is included as a simple service definition reference for the supported Python versions.
+
+These Docker targets bootstrap their own isolated environment inside the container and do not rely on the host `.venv` or on `make test`. Each container installs the package and runs:
+
+```bash
+pip install -e .
+pip install pytest
+pytest tests/ -v --tb=short
+```
+
+Success means the selected container exits cleanly and `pytest` passes for that Python version with no test failures. `make test-docker-all` is successful only when all four Python versions pass.
+
+This intentionally keeps the Docker scope minimal and aligned with the CI pytest step, without pulling in linting, typing, or benchmark jobs.
 
 ### Versions
 
@@ -264,6 +377,7 @@ See the [examples/](examples/) directory:
 - `examples/list_args.py` — List arguments
 - `examples/env_vars.py` — Environment variable fallback
 - `examples/subcommands.py` — Git-style subcommands
+- `examples/custom_converters.py` — Custom type converters (per-arg and global registry)
 
 ## License
 

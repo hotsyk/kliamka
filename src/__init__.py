@@ -1,1 +1,0 @@
-from .kliamka import *  # noqa
