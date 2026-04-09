@@ -4,6 +4,41 @@
 
 ### New features
 
+- **Custom type converters** — register global converters or provide per-field overrides for CLI args and environment variables
+  ```python
+  from kliamka import register_converter, KliamkaArg
+  from pathlib import Path
+
+  register_converter(Path, Path)  # global
+
+  class Args(BaseModel):
+      config: Path = KliamkaArg("--config", "Config file")
+      tags: list[str] = KliamkaArg("--tags", "Tags", converter=lambda s: s.split(","))
+  ```
+  - `register_converter()` / `unregister_converter()` for global type registration
+  - `converter=` parameter on `KliamkaArg` for per-field overrides
+  - 5-step resolution order: explicit converter → global registry → enum → `List[T]` → fallback
+  - See `examples/custom_converters.py`
+
+- **Python 3.14 support** — added to the CI test matrix
+
+- **Docker-based multi-Python testing** — `docker-compose.test.yml` runs the suite across supported interpreters
+
+- **Packaging smoke tests** — validate wheel/sdist builds in `tests/test_packaging_smoke.py`
+
+### Improvements
+
+- **Package restructure** — moved from single-file `src/kliamka.py` to a proper `src/kliamka/` package split into focused modules (`_core`, `_parser`, `_decorators`, `_helpers`, `_converters`)
+- **Cleaner error output** — stripped Pydantic error prefixes so CLI validation messages are user-friendly
+- **Public API hygiene** — internal helpers no longer leak through `__init__.py`
+- **Test isolation** — improved `sys.path` management in the test suite
+- **CI updates** — publish workflow and CI pipeline refinements
+- **Expanded README** — documents custom converters and new 0.6 features
+
+## 0.5.0
+
+### New features
+
 - **Short flags** — define `-v` alongside `--verbose` via `short="-v"` parameter
   ```python
   verbose: bool | None = KliamkaArg("--verbose", "Verbose", short="-v")
