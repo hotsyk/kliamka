@@ -123,7 +123,7 @@ class TestKliamkaDecorators:
 
 class TestModuleInfo:
     def test_version_exists(self) -> None:
-        assert __version__ == "0.5.0"
+        assert __version__ == "0.6.0"
 
     def test_imports_use_local_src_tree(self) -> None:
         kliamka_module = importlib.import_module("kliamka")

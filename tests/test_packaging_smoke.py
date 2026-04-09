@@ -108,7 +108,7 @@ def _run_packaging_smoke(artifact: Path, env_dir: Path) -> None:
             "-c",
             (
                 "import kliamka; "
-                "assert kliamka.__version__ == '0.5.0'; "
+                "assert kliamka.__version__ == '0.6.0'; "
                 "assert hasattr(kliamka, 'kliamka_cli'); "
                 "assert hasattr(kliamka, 'KliamkaArgClass')"
             ),
