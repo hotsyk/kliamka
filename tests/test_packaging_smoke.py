@@ -68,7 +68,6 @@ def _bootstrap_build_backend(python_bin: Path) -> None:
             "install",
             "--disable-pip-version-check",
             "setuptools>=68.0",
-            "wheel",
         ],
         cwd=ROOT,
         check=True,
