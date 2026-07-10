@@ -40,7 +40,9 @@ def _build_type_kwargs(
     if _is_list_type(unwrapped):
         element_type = _get_list_element_type(unwrapped)
         kwargs["nargs"] = "*"
-        kwargs["type"] = resolved or element_type or str
+        converter = resolved or element_type
+        if converter is not None and converter is not str:
+            kwargs["type"] = converter
     elif (
         unwrapped is not None
         and isinstance(unwrapped, type)
