@@ -145,6 +145,26 @@ class ParserMeta:
         self.version = version
 
 
+@cache
+def _get_cli_field_info(
+    arg_class: type["KliamkaArgClass"],
+) -> tuple[tuple[str, ...], Callable[[Any], Any], bool, bool]:
+    """Return validated and cached metadata for CLI fast-path fields."""
+    names = []
+    for field_name, field_info in arg_class.model_fields.items():
+        if not isinstance(field_info.default, KliamkaArg):
+            continue
+        try:
+            _unwrap_optional(field_info.annotation)
+        except ValueError as exc:
+            raise KliamkaError(f"{field_name}: {exc}") from exc
+        names.append(field_name)
+    field_names = tuple(names)
+    getter = itemgetter(*field_names) if field_names else lambda _values: ()
+    ignores_extra = arg_class.model_config.get("extra") in (None, "ignore")
+    return field_names, getter, len(field_names) == 1, ignores_extra
+
+
 class KliamkaArgClass(BaseModel):
     """Base class for CLI argument definitions.
 
@@ -175,26 +195,6 @@ class KliamkaArgClass(BaseModel):
                 if isinstance(meta, ParserMeta):
                     return meta
         return ParserMeta()
-
-    @classmethod
-    @cache
-    def _get_cli_field_info(
-        cls,
-    ) -> tuple[tuple[str, ...], Callable[[Any], Any], bool, bool]:
-        """Return validated and cached metadata for CLI fast-path fields."""
-        names = []
-        for field_name, field_info in cls.model_fields.items():
-            if not isinstance(field_info.default, KliamkaArg):
-                continue
-            try:
-                _unwrap_optional(field_info.annotation)
-            except ValueError as exc:
-                raise KliamkaError(f"{field_name}: {exc}") from exc
-            names.append(field_name)
-        field_names = tuple(names)
-        getter = itemgetter(*field_names) if field_names else lambda _values: ()
-        ignores_extra = cls.model_config.get("extra") in (None, "ignore")
-        return field_names, getter, len(field_names) == 1, ignores_extra
 
     @classmethod
     def create_parser(cls) -> argparse.ArgumentParser:
@@ -235,7 +235,7 @@ class KliamkaArgClass(BaseModel):
         """
         namespace_values = vars(args)
         cli_field_names, get_cli_values, single_cli_field, ignores_extra = (
-            cls._get_cli_field_info()
+            _get_cli_field_info(cls)
         )
         if cli_field_names:
             try:
