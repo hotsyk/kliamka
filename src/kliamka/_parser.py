@@ -200,6 +200,12 @@ def _clone_argument_group(
     return group
 
 
+@cache
+def _default_prog(argv0: str) -> str:
+    """Resolve argparse's default program name once per argv[0] value."""
+    return os.path.basename(argv0)
+
+
 def _new_argument_parser(
     description: str,
     prog: str | None = None,
@@ -221,7 +227,7 @@ def _new_argument_parser(
     parser._defaults = {}
     parser._has_negative_number_optionals = []
     parser.description = description
-    parser.prog = prog if prog is not None else os.path.basename(sys.argv[0])
+    parser.prog = prog if prog is not None else _default_prog(sys.argv[0])
     parser.usage = usage
     parser.epilog = epilog
     parser._positionals = _clone_argument_group(template._positionals, parser)
