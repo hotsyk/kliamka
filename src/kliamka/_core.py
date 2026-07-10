@@ -234,21 +234,23 @@ class KliamkaArgClass(BaseModel):
         """
         namespace_values = vars(args)
         cli_field_names = cls._get_cli_field_names()
-        if cli_field_names and all(
-            namespace_values.get(name, _UNSET) is not _UNSET for name in cli_field_names
-        ):
-            if cls.model_config.get("extra") in (None, "ignore"):
-                model_values = namespace_values
+        if cli_field_names:
+            for name in cli_field_names:
+                if namespace_values.get(name, _UNSET) is _UNSET:
+                    break
             else:
-                model_values = {
-                    name: namespace_values[name]
-                    for name in cls.model_fields
-                    if name in namespace_values
-                }
-            try:
-                return cls.model_validate(model_values)
-            except ValidationError as exc:
-                raise KliamkaError(_format_validation_error(exc)) from exc
+                if cls.model_config.get("extra") in (None, "ignore"):
+                    model_values = namespace_values
+                else:
+                    model_values = {
+                        name: namespace_values[name]
+                        for name in cls.model_fields
+                        if name in namespace_values
+                    }
+                try:
+                    return cls.model_validate(model_values)
+                except ValidationError as exc:
+                    raise KliamkaError(_format_validation_error(exc)) from exc
 
         kwargs: dict[str, Any] = {}
         env_sources: dict[str, str] = {}
