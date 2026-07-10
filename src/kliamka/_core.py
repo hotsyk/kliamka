@@ -253,13 +253,18 @@ class KliamkaArgClass(BaseModel):
                             break
                 if complete:
                     if ignores_extra:
-                        model_values = namespace_values
-                    else:
-                        model_values = {
-                            name: namespace_values[name]
-                            for name in cls.model_fields
-                            if name in namespace_values
-                        }
+                        try:
+                            return cls.__pydantic_validator__.validate_python(
+                                namespace_values
+                            )
+                        except ValidationError as exc:
+                            raise KliamkaError(_format_validation_error(exc)) from exc
+
+                    model_values = {
+                        name: namespace_values[name]
+                        for name in cls.model_fields
+                        if name in namespace_values
+                    }
                     try:
                         return cls.__pydantic_validator__.validate_python(model_values)
                     except ValidationError as exc:
