@@ -236,7 +236,7 @@ def _new_argument_parser(
     prog: str | None = None,
     usage: str | None = None,
     epilog: str | None = None,
-) -> argparse.ArgumentParser:
+) -> _KliamkaArgumentParser:
     """Clone empty argparse state without repeating locale initialization."""
     template = _argument_parser_template()
     parser = object.__new__(_KliamkaArgumentParser)
@@ -283,20 +283,12 @@ def _materialize_help_action(parser: _KliamkaArgumentParser) -> None:
     parser._kliamka_help_pending = False
 
 
-def _add_help_action(parser: argparse.ArgumentParser) -> None:
-    """Register standard help eagerly or lazily for a Kliamka parser."""
-    if isinstance(parser, _KliamkaArgumentParser):
-        action = _help_action_template()
-        for option in action.option_strings:
-            parser._option_string_actions[option] = action
-        parser._kliamka_help_pending = True
-    else:
-        action = _copy_action(_help_action_template())
-        setattr(action, "container", parser._optionals)
-        parser._actions.append(action)
-        parser._optionals._group_actions.append(action)
-        for option in action.option_strings:
-            parser._option_string_actions[option] = action
+def _add_help_action(parser: _KliamkaArgumentParser) -> None:
+    """Register standard help for lazy materialization by a Kliamka parser."""
+    action = _help_action_template()
+    for option in action.option_strings:
+        parser._option_string_actions[option] = action
+    parser._kliamka_help_pending = True
     parser.add_help = True
 
 
