@@ -22,20 +22,23 @@ def built_artifacts() -> tuple[Path, Path]:
     if sys.version_info < MIN_PYTHON:
         pytest.skip("packaging smoke tests require Python 3.11+")
 
-    if shutil.which("uv") is None:
-        pytest.skip("uv is required for packaging smoke tests")
+    prebuilt_dist = os.environ.get("KLIAMKA_PACKAGING_DIST")
+    if not prebuilt_dist and shutil.which("uv") is None:
+        pytest.skip("uv is required to build packaging smoke-test artifacts")
 
-    if DIST.exists():
-        shutil.rmtree(DIST)
+    artifact_dir = Path(prebuilt_dist).resolve() if prebuilt_dist else DIST
+    if not prebuilt_dist:
+        if DIST.exists():
+            shutil.rmtree(DIST)
 
-    subprocess.run(
-        ["uv", "build", "--python", sys.executable],
-        cwd=ROOT,
-        check=True,
-    )
+        subprocess.run(
+            ["uv", "build", "--python", sys.executable],
+            cwd=ROOT,
+            check=True,
+        )
 
-    wheel = next(DIST.glob("*.whl"), None)
-    sdist = next(DIST.glob("*.tar.gz"), None)
+    wheel = next(artifact_dir.glob("*.whl"), None)
+    sdist = next(artifact_dir.glob("*.tar.gz"), None)
 
     assert wheel is not None, "wheel artifact was not built"
     assert sdist is not None, "sdist artifact was not built"
@@ -67,8 +70,7 @@ def _bootstrap_build_backend(python_bin: Path) -> None:
             "pip",
             "install",
             "--disable-pip-version-check",
-            "setuptools>=68.0",
-            "wheel",
+            "setuptools>=77.0",
         ],
         cwd=ROOT,
         check=True,
@@ -108,7 +110,7 @@ def _run_packaging_smoke(artifact: Path, env_dir: Path) -> None:
             "-c",
             (
                 "import kliamka; "
-                "assert kliamka.__version__ == '0.6.0'; "
+                "assert kliamka.__version__ == '0.7.0'; "
                 "assert hasattr(kliamka, 'kliamka_cli'); "
                 "assert hasattr(kliamka, 'KliamkaArgClass')"
             ),

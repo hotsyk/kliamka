@@ -1,30 +1,57 @@
 import argparse
+import types
 from enum import Enum
 from typing import Any, Callable, Type, Union, get_args, get_origin
+
+
+class _UnsetType:
+    """Sentinel default distinguishing "not given on the CLI" from any real value."""
+
+    def __repr__(self) -> str:
+        return "<kliamka.UNSET>"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+_UNSET = _UnsetType()
+
+
+def _is_union(annotation: Any) -> bool:
+    """Check if annotation is a Union, either typing.Union or PEP 604 (X | Y)."""
+    origin = get_origin(annotation)
+    return origin is Union or origin is types.UnionType
 
 
 def _is_bool_annotation(annotation: Any) -> bool:
     """Check if annotation represents a bool type."""
     if annotation is bool:
         return True
-    origin = getattr(annotation, "__origin__", None)
-    if origin is Union:
-        non_none = [a for a in annotation.__args__ if a is not type(None)]
+    if _is_union(annotation):
+        non_none = [a for a in get_args(annotation) if a is not type(None)]
         return len(non_none) == 1 and non_none[0] is bool
     return False
 
 
 def _unwrap_optional(annotation: Any) -> tuple[Any, bool]:
-    """Unwrap Optional[T] to (T, True) or return (annotation, False)."""
-    if (
-        annotation is not None
-        and hasattr(annotation, "__origin__")
-        and annotation.__origin__ is Union
-    ):
-        args = [a for a in annotation.__args__ if a is not type(None)]
-        if args:
-            return args[0], True
-    return annotation, False
+    """Unwrap ``Optional[T]`` and reject unsupported wider unions.
+
+    Raises:
+        ValueError: If ``annotation`` is a union other than ``T | None``.
+    """
+    if annotation is None or not _is_union(annotation):
+        return annotation, False
+
+    members = get_args(annotation)
+    non_none = [member for member in members if member is not type(None)]
+    has_none = any(member is type(None) for member in members)
+    if has_none and len(non_none) == 1:
+        return non_none[0], True
+
+    raise ValueError(
+        f"unsupported union annotation {annotation!r}; only Optional[T] / T | None "
+        "unions are supported"
+    )
 
 
 def _is_list_type(annotation: Any) -> bool:

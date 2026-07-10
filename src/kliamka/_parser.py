@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Type
 
 from ._converters import _resolve_type_converter
 from ._helpers import (
+    _UNSET,
     _get_list_element_type,
     _is_bool_annotation,
     _is_list_type,
@@ -18,49 +19,55 @@ if TYPE_CHECKING:
     from ._core import KliamkaArg, KliamkaArgClass
 
 
+def _build_help_text(field_value: "KliamkaArg") -> str:
+    """Build help text, including an environment fallback hint."""
+    help_text = field_value.help_text
+    if field_value.env:
+        help_text += f" [env: {field_value.env}]"
+    return help_text
+
+
+def _build_type_kwargs(
+    annotation: Any,
+    field_value: "KliamkaArg",
+) -> tuple[dict[str, Any], bool]:
+    """Build shared argparse type kwargs for positional and optional args."""
+    unwrapped, is_optional = _unwrap_optional(annotation)
+    resolved = _resolve_type_converter(unwrapped, field_value)
+    kwargs: dict[str, Any] = {}
+
+    if _is_list_type(unwrapped):
+        element_type = _get_list_element_type(unwrapped)
+        kwargs["nargs"] = "*"
+        kwargs["type"] = resolved or element_type or str
+    elif (
+        unwrapped is not None
+        and isinstance(unwrapped, type)
+        and issubclass(unwrapped, Enum)
+    ):
+        kwargs["type"] = resolved
+        choices = [f"{member.name}({member.value})" for member in unwrapped]
+        kwargs["metavar"] = "{" + ",".join(choices) + "}"
+    elif resolved is not None:
+        kwargs["type"] = resolved
+    else:
+        kwargs["type"] = unwrapped if unwrapped is not None else str
+
+    return kwargs, is_optional
+
+
 def _build_positional_kwargs(
     field_info: Any, field_value: "KliamkaArg"
 ) -> dict[str, Any]:
     """Build argparse kwargs for a positional argument."""
-    help_text = field_value.help_text
-    if field_value.env:
-        help_text += f" [env: {field_value.env}]"
+    kwargs, is_optional = _build_type_kwargs(field_info.annotation, field_value)
+    kwargs["help"] = _build_help_text(field_value)
 
-    kwargs: dict[str, Any] = {"help": help_text}
-    annotation = field_info.annotation
-    annotation, is_optional = _unwrap_optional(annotation)
-
-    resolved = _resolve_type_converter(annotation, field_value)
-
-    if _is_list_type(annotation):
-        element_type = _get_list_element_type(annotation)
-        kwargs["nargs"] = "*"
-        kwargs["default"] = (
-            field_value.default if field_value.default is not None else []
-        )
-        if resolved is not None:
-            kwargs["type"] = resolved
-        else:
-            kwargs["type"] = element_type if element_type is not None else str
-    else:
-        if is_optional or field_value.default is not None:
-            kwargs["nargs"] = "?"
-            kwargs["default"] = field_value.default
-
-        if (
-            annotation is not None
-            and isinstance(annotation, type)
-            and issubclass(annotation, Enum)
-        ):
-            # Enum metavar must be set even though the resolver already
-            # returned the enum parser as the type=.
-            kwargs["type"] = resolved
-            choices = [f"{m.name}({m.value})" for m in annotation]
-            kwargs["metavar"] = "{" + ",".join(choices) + "}"
-        elif resolved is not None:
-            kwargs["type"] = resolved
-        else:
-            kwargs["type"] = annotation if annotation is not None else str
+    if kwargs.get("nargs") == "*":
+        kwargs["default"] = _UNSET
+    elif is_optional or field_value.default is not None:
+        kwargs["nargs"] = "?"
+        kwargs["default"] = _UNSET
 
     return kwargs
 
@@ -69,46 +76,17 @@ def _build_optional_kwargs(
     field_info: Any, field_value: "KliamkaArg"
 ) -> dict[str, Any]:
     """Build argparse kwargs for an optional (flag) argument."""
-    help_text = field_value.help_text
-    if field_value.env:
-        help_text += f" [env: {field_value.env}]"
-
     kwargs: dict[str, Any] = {
-        "help": help_text,
-        "default": field_value.default,
+        "help": _build_help_text(field_value),
+        "default": _UNSET,
     }
 
     if _is_bool_annotation(field_info.annotation):
+        _unwrap_optional(field_info.annotation)
         kwargs["action"] = "store_true"
-        kwargs["default"] = (
-            field_value.default if field_value.default is not None else False
-        )
     else:
-        annotation, _ = _unwrap_optional(field_info.annotation)
-        resolved = _resolve_type_converter(annotation, field_value)
-
-        if _is_list_type(annotation):
-            element_type = _get_list_element_type(annotation)
-            kwargs["nargs"] = "*"
-            kwargs["default"] = (
-                field_value.default if field_value.default is not None else []
-            )
-            if resolved is not None:
-                kwargs["type"] = resolved
-            else:
-                kwargs["type"] = element_type if element_type is not None else str
-        elif (
-            annotation is not None
-            and isinstance(annotation, type)
-            and issubclass(annotation, Enum)
-        ):
-            kwargs["type"] = resolved
-            choices = [f"{m.name}({m.value})" for m in annotation]
-            kwargs["metavar"] = "{" + ",".join(choices) + "}"
-        elif resolved is not None:
-            kwargs["type"] = resolved
-        else:
-            kwargs["type"] = annotation if annotation is not None else str
+        type_kwargs, _ = _build_type_kwargs(field_info.annotation, field_value)
+        kwargs.update(type_kwargs)
 
     return kwargs
 
@@ -148,18 +126,28 @@ def _populate_parser(
         else:
             optional_args.append((field_name, field_info, field_value))
 
-    for _field_name, field_info, field_value in positional_args:
-        kwargs = _build_positional_kwargs(field_info, field_value)
-        parser.add_argument(field_value.flag, **kwargs)
+    try:
+        for field_name, field_info, field_value in positional_args:
+            kwargs = _build_positional_kwargs(field_info, field_value)
+            dest = field_value.name or field_name
+            if dest != field_value.flag:
+                kwargs.setdefault("metavar", field_value.flag)
+            parser.add_argument(dest, **kwargs)
 
-    for _field_name, field_info, field_value in optional_args:
-        kwargs = _build_optional_kwargs(field_info, field_value)
-        flags = _get_flag_names(field_value)
-        parser.add_argument(*flags, **kwargs)
-
-    for _group_name, members in exclusive_groups.items():
-        group = parser.add_mutually_exclusive_group()
-        for _field_name, field_info, field_value in members:
+        for field_name, field_info, field_value in optional_args:
             kwargs = _build_optional_kwargs(field_info, field_value)
+            kwargs["dest"] = field_value.name or field_name
             flags = _get_flag_names(field_value)
-            group.add_argument(*flags, **kwargs)
+            parser.add_argument(*flags, **kwargs)
+
+        for _group_name, members in exclusive_groups.items():
+            group = parser.add_mutually_exclusive_group()
+            for field_name, field_info, field_value in members:
+                kwargs = _build_optional_kwargs(field_info, field_value)
+                kwargs["dest"] = field_value.name or field_name
+                flags = _get_flag_names(field_value)
+                group.add_argument(*flags, **kwargs)
+    except ValueError as exc:
+        from ._core import KliamkaError
+
+        raise KliamkaError(str(exc)) from exc
