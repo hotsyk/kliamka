@@ -237,11 +237,14 @@ class KliamkaArgClass(BaseModel):
         if cli_field_names and all(
             namespace_values.get(name, _UNSET) is not _UNSET for name in cli_field_names
         ):
-            model_values = {
-                name: namespace_values[name]
-                for name in cls.model_fields
-                if name in namespace_values
-            }
+            if cls.model_config.get("extra") in (None, "ignore"):
+                model_values = namespace_values
+            else:
+                model_values = {
+                    name: namespace_values[name]
+                    for name in cls.model_fields
+                    if name in namespace_values
+                }
             try:
                 return cls.model_validate(model_values)
             except ValidationError as exc:
