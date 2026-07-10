@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.8.0
+
+### Performance
+
+- Parser construction now caches schema-dependent argument plans and prebuilt argparse
+  parser/action templates. Every `create_parser()` call still returns fresh parser, action,
+  group, and mutable container objects, preserving parser isolation and public behavior.
+- Complete CLI namespaces use a safe fast path through Pydantic's compiled validator when
+  the model configuration permits it. Calls requiring environment/default resolution or
+  different extra-field handling retain the general validation path.
+- The benchmark suite's primary geometric-mean timing improved from `47.7634 µs` to
+  `12.3445 µs` (about 74.2%). Across matched argparse workloads, the aggregate Kliamka
+  timing is approximately `0.32×` argparse. Timings remain environment-dependent.
+- Parser caching, help behavior, converter invalidation, object isolation, and package
+  installation were verified on Python 3.11, 3.12, 3.13, and 3.14.
+
+### Benchmark tooling
+
+- Added the opt-in `--benchmark-compare-libraries` pytest option. It appends a median-time
+  table with equivalent workloads as rows and argparse, Kliamka, Click, and Typer as
+  columns, including argparse-relative ratios and placeholders for unavailable libraries.
+- Existing benchmark names, timed bodies, JSON identities, and default pytest-benchmark
+  output remain unchanged when the option is not supplied.
+
 ## 0.7.1
 
 ### Bug fixes
