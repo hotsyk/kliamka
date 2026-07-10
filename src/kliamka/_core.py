@@ -197,18 +197,19 @@ class KliamkaArgClass(BaseModel):
     def create_parser(cls) -> argparse.ArgumentParser:
         """Create an ArgumentParser from the class definition."""
         meta = cls._get_parser_meta()
-        parser_kwargs: dict[str, Any] = {
-            "description": cls.__doc__ or "",
-        }
-
-        if meta.prog is not None:
-            parser_kwargs["prog"] = meta.prog
-        if meta.usage is not None:
-            parser_kwargs["usage"] = meta.usage
-        if meta.epilog is not None:
-            parser_kwargs["epilog"] = meta.epilog
-
-        parser = argparse.ArgumentParser(**parser_kwargs)
+        if meta.prog is None and meta.usage is None and meta.epilog is None:
+            parser = argparse.ArgumentParser(description=cls.__doc__ or "")
+        else:
+            parser_kwargs: dict[str, Any] = {
+                "description": cls.__doc__ or "",
+            }
+            if meta.prog is not None:
+                parser_kwargs["prog"] = meta.prog
+            if meta.usage is not None:
+                parser_kwargs["usage"] = meta.usage
+            if meta.epilog is not None:
+                parser_kwargs["epilog"] = meta.epilog
+            parser = argparse.ArgumentParser(**parser_kwargs)
 
         if meta.version is not None:
             parser.add_argument(

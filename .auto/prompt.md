@@ -41,4 +41,10 @@ Pytest-benchmark already executes many rounds per test. The metric uses medians 
 - Keep only primary-metric improvements; discard unchanged/regressing experiments. Reconfirm small/noisy wins.
 
 ## What's Been Tried
-- Baseline pending. Initial supplied results show Kliamka parser creation about 1.2x slower than equivalent argparse, parsing about 1.3–1.4x slower than argparse but substantially faster than Click/Typer, and `from_args` validation around 4.6 microseconds.
+- **Baseline:** `kliamka_geomean_us=47.7634`, matched argparse ratio 1.273. Kliamka was already much faster than Click/Typer parsing.
+- **Kept — complete-CLI fast path:** cached validated CLI field metadata and passed fully supplied namespaces through Pydantic without the env/default loop. Primary reached 43.7896; validation fell from 3.58us to 2.21us.
+- **Kept — compiled parser recipes:** cache model-to-argparse argument recipes while allocating a fresh mutable parser. Explicit invalidation on `KliamkaArg` attribute writes and public converter registry changes replaced an expensive per-call signature. Primary reached 40.3072; creation fell to 88.15us.
+- **Kept — avoid mapping copies:** pass namespace dictionaries directly when Pydantic's extra policy is default/ignore, while retaining filtering for allow/forbid. Primary reached 38.2466.
+- **Kept — fast completeness/validation:** direct early-exit checks, compiled Pydantic validator calls, and cached `itemgetter` field access reduced validation to about 1.18us and primary to 35.9981.
+- **Kept and reverse-confirmed — omit identity `str` converters for list tokens:** small win to 35.8413; restoring them regressed to 36.2670. Earlier omission for every scalar/list string had regressed and was discarded.
+- Current matched argparse ratio is about 1.09; remaining overhead is chiefly the intentional validated model construction after argparse parsing. Parser creation is within roughly 2–3us of equivalent raw argparse.
