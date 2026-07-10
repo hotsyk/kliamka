@@ -27,7 +27,7 @@ def parse_test_name(name):
 
     for lib in libraries:
         if name.startswith(lib + "_"):
-            operation = name[len(lib) + 1:]
+            operation = name[len(lib) + 1 :]
             return lib, operation
 
     return "unknown", name

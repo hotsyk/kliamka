@@ -53,6 +53,13 @@ _CONVERTERS: dict[type, Callable[[str], Any]] = {}
 # --------------------------------------------------------------------------- #
 # Public API
 # --------------------------------------------------------------------------- #
+def _clear_parser_plans() -> None:
+    """Invalidate parser recipes after the converter registry changes."""
+    from ._parser import _clear_parser_plan_cache
+
+    _clear_parser_plan_cache()
+
+
 def register_converter(tp: type, fn: Callable[[str], Any]) -> None:
     """Register a global converter for ``tp``.
 
@@ -64,6 +71,7 @@ def register_converter(tp: type, fn: Callable[[str], Any]) -> None:
     automatically.
     """
     _CONVERTERS[tp] = fn
+    _clear_parser_plans()
 
 
 def unregister_converter(tp: type) -> None:
@@ -71,7 +79,8 @@ def unregister_converter(tp: type) -> None:
 
     This is a no-op if no converter is registered for ``tp``.
     """
-    _CONVERTERS.pop(tp, None)
+    if _CONVERTERS.pop(tp, None) is not None:
+        _clear_parser_plans()
 
 
 def get_converter(tp: type) -> Optional[Callable[[str], Any]]:

@@ -55,7 +55,7 @@ def parse_test_name(name):
 
     for lib in libraries:
         if name.startswith(lib + "_"):
-            operation = name[len(lib) + 1:]
+            operation = name[len(lib) + 1 :]
             return lib, operation
 
     return "unknown", name
@@ -136,7 +136,7 @@ def run_benchmarks(save=False, compare=False, json_output=None, table=False):
         cmd.append(f"--benchmark-json={json_output}")
 
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd)
+    subprocess.run(cmd)
 
     # Generate table if requested
     if table and json_output and os.path.exists(json_output):
@@ -189,7 +189,12 @@ def main():
     if args.install_deps:
         install_dependencies(with_click=args.with_click, with_typer=args.with_typer)
 
-    run_benchmarks(save=args.save, compare=args.compare, json_output=args.json, table=args.table)
+    run_benchmarks(
+        save=args.save,
+        compare=args.compare,
+        json_output=args.json,
+        table=args.table,
+    )
 
 
 if __name__ == "__main__":

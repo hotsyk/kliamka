@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
+from functools import cache
+from operator import itemgetter
 from typing import Any, Callable, Optional, Type
 
 from pydantic import BaseModel, ValidationError
@@ -16,7 +18,7 @@ from ._helpers import (
     _is_list_type,
     _unwrap_optional,
 )
-from ._parser import _populate_parser
+from ._parser import _add_help_action, _new_argument_parser, _populate_parser
 
 _PYDANTIC_MSG_PREFIXES = (
     "Value error, ",
@@ -110,6 +112,12 @@ class KliamkaArg:
         self.converter = converter
         self.name = ""
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+        from ._parser import _clear_parser_plan_cache
+
+        _clear_parser_plan_cache()
+
     def __set_name__(self, owner: Type, name: str) -> None:
         self.name = name
 
@@ -135,6 +143,26 @@ class ParserMeta:
         self.usage = usage
         self.epilog = epilog
         self.version = version
+
+
+@cache
+def _get_cli_field_info(
+    arg_class: type["KliamkaArgClass"],
+) -> tuple[tuple[str, ...], Callable[[Any], Any], bool, bool]:
+    """Return validated and cached metadata for CLI fast-path fields."""
+    names = []
+    for field_name, field_info in arg_class.model_fields.items():
+        if not isinstance(field_info.default, KliamkaArg):
+            continue
+        try:
+            _unwrap_optional(field_info.annotation)
+        except ValueError as exc:
+            raise KliamkaError(f"{field_name}: {exc}") from exc
+        names.append(field_name)
+    field_names = tuple(names)
+    getter = itemgetter(*field_names) if field_names else lambda _values: ()
+    ignores_extra = arg_class.model_config.get("extra") in (None, "ignore")
+    return field_names, getter, len(field_names) == 1, ignores_extra
 
 
 class KliamkaArgClass(BaseModel):
@@ -172,18 +200,13 @@ class KliamkaArgClass(BaseModel):
     def create_parser(cls) -> argparse.ArgumentParser:
         """Create an ArgumentParser from the class definition."""
         meta = cls._get_parser_meta()
-        parser_kwargs: dict[str, Any] = {
-            "description": cls.__doc__ or "",
-        }
-
-        if meta.prog is not None:
-            parser_kwargs["prog"] = meta.prog
-        if meta.usage is not None:
-            parser_kwargs["usage"] = meta.usage
-        if meta.epilog is not None:
-            parser_kwargs["epilog"] = meta.epilog
-
-        parser = argparse.ArgumentParser(**parser_kwargs)
+        parser = _new_argument_parser(
+            description=cls.__doc__ or "",
+            prog=meta.prog,
+            usage=meta.usage,
+            epilog=meta.epilog,
+        )
+        _add_help_action(parser)
 
         if meta.version is not None:
             parser.add_argument(
@@ -210,6 +233,43 @@ class KliamkaArgClass(BaseModel):
                 variable value cannot be converted to the field type. The
                 message is simplified for CLI display.
         """
+        namespace_values = vars(args)
+        cli_field_names, get_cli_values, single_cli_field, ignores_extra = (
+            _get_cli_field_info(cls)
+        )
+        if cli_field_names:
+            try:
+                cli_values = get_cli_values(namespace_values)
+            except KeyError:
+                pass
+            else:
+                if single_cli_field:
+                    complete = cli_values is not _UNSET
+                else:
+                    complete = True
+                    for value in cli_values:
+                        if value is _UNSET:
+                            complete = False
+                            break
+                if complete:
+                    if ignores_extra:
+                        try:
+                            return cls.__pydantic_validator__.validate_python(
+                                namespace_values
+                            )
+                        except ValidationError as exc:
+                            raise KliamkaError(_format_validation_error(exc)) from exc
+
+                    model_values = {
+                        name: namespace_values[name]
+                        for name in cls.model_fields
+                        if name in namespace_values
+                    }
+                    try:
+                        return cls.__pydantic_validator__.validate_python(model_values)
+                    except ValidationError as exc:
+                        raise KliamkaError(_format_validation_error(exc)) from exc
+
         kwargs: dict[str, Any] = {}
         env_sources: dict[str, str] = {}
         for field_name, field_info in cls.model_fields.items():

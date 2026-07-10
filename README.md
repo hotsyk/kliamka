@@ -392,6 +392,20 @@ See the [examples/](examples/) directory:
 - `examples/subcommands.py` — Git-style subcommands
 - `examples/custom_converters.py` — Custom type converters (per-arg and global registry)
 
+## Performance
+
+Workload                |  argparse |          kliamka |             click |              typer
+--- | --- | --- | --- | ---
+Creation · simple       | 102.42 µs |  6.25 µs (0.06×) |  11.08 µs (0.11×) |                  —
+Creation · complex      | 119.04 µs |  7.33 µs (0.06×) |                 — |                  —
+Parsing · simple        |  10.04 µs | 10.92 µs (1.09×) |  64.21 µs (6.39×) | 239.56 µs (23.86×)
+Parsing · list          |   8.54 µs |  9.50 µs (1.11×) |  61.38 µs (7.19×) | 235.13 µs (27.53×)
+Parsing · complex       |  16.13 µs | 17.17 µs (1.06×) |  81.75 µs (5.07×) | 300.46 µs (18.63×)
+Full workflow · simple  | 129.42 µs | 17.88 µs (0.14×) | 126.25 µs (0.98×) |                  —
+Full workflow · complex | 154.50 µs | 25.79 µs (0.17×) |                 — |                  —
+Validation              | 183.67 ns |  1.42 µs (7.72×) |                 — |                  —
+Repeated parsing · 100  | 990.46 µs |  1.08 ms (1.09×) |                 — |                  —
+
 ## License
 
 [MIT-NORUS](LICENSE) License — see LICENSE file for details.
