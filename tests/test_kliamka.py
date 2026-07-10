@@ -123,7 +123,7 @@ class TestKliamkaDecorators:
 
 class TestModuleInfo:
     def test_version_exists(self) -> None:
-        assert __version__ == "0.6.0"
+        assert __version__ == "0.7.0"
 
     def test_imports_use_local_src_tree(self) -> None:
         kliamka_module = importlib.import_module("kliamka")
@@ -1198,10 +1198,10 @@ class TestMutuallyExclusiveGroups:
 
         # Each alone works
         args = parser.parse_args(["--json"])
-        assert args.json is True
+        assert args.json_out is True
 
         args = parser.parse_args(["--csv"])
-        assert args.csv is True
+        assert args.csv_out is True
 
         # Both together should fail
         with pytest.raises(SystemExit):

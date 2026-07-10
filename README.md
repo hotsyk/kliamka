@@ -88,6 +88,9 @@ class MyArgs(KliamkaArgClass):
     config: str | None = KliamkaArg("--config", "Config file path")
 ```
 
+Single-value annotations and optional unions (`Optional[T]` or `T | None`) are
+supported. Wider unions such as `int | str` are rejected when the parser is built.
+
 ### `ParserMeta`
 
 Customize help output and add `--version`:
@@ -148,6 +151,10 @@ def main(args: MainArgs, command: str, cmd_args) -> None:
         print(f"Removing {cmd_args.id} (force={cmd_args.force})")
 ```
 
+The main class and each subcommand class may define their own `ParserMeta`.
+For subcommands, `prog`, `usage`, `epilog`, and `version` apply to that
+subcommand's parser and help output.
+
 ## Feature Examples
 
 ### Enum Arguments
@@ -174,7 +181,13 @@ class MyArgs(KliamkaArgClass):
     debug: bool | None = KliamkaArg("--debug", "Debug mode", env="DEBUG")
 ```
 
-Priority: CLI argument > environment variable > default value.
+Priority: CLI argument > environment variable > default value. An environment
+variable counts as set even when its value is empty.
+
+Environment booleans are case-insensitive and accept `true`, `1`, `yes`, `on`,
+`false`, `0`, `no`, and `off`. Other spellings are rejected with an error naming
+the environment variable. List values use comma-separated items (for example,
+`FILES=a.txt,b.txt`); comma escaping is not supported.
 
 ### List Arguments
 

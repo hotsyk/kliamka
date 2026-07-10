@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.0
+
 ### Bug fixes
 
 - **PEP 604 union support** — `bool | None` / `int | None` annotations (as shown in the
@@ -18,9 +20,10 @@
 - **Clean errors for bad environment values** — invalid env var values (failed converters,
   invalid enum names) now raise `KliamkaError` naming the variable, and render as a
   standard `error:` line through the decorators instead of a traceback
-- **Subcommand argument collisions fail fast** — defining the same flag in the main class
-  and a subcommand now raises `KliamkaError` at decoration time (argparse silently
-  clobbered the main value); the `_command` destination is reserved
+- **Subcommand argument collisions fail fast** — sharing a namespace destination between
+  the main class and a subcommand now raises `KliamkaError` at decoration time, including
+  collisions with ordinary Pydantic fields (argparse silently clobbered the main value);
+  the `_command` destination is reserved
 - **Env-var lists honor per-field `converter=`** — comma-separated env values are now
   converted per element exactly like CLI tokens
 
@@ -31,6 +34,34 @@
   applied by `from_args()`. Code using the decorators or `from_args()` is unaffected.
 - Explicitly passing a list flag with zero values (e.g. `--files`) now counts as
   a provided empty list and overrides env/default values.
+- Raw argparse namespaces now use model field names as destinations. This prevents
+  normalized option spellings such as `--foo-bar` and `--foo_bar` from sharing a value.
+
+### Quality improvements
+
+- Wider unions such as `int | str` are rejected clearly; only `Optional[T]` / `T | None`
+  unions are supported.
+- Main and per-subcommand `ParserMeta` usage, prog, epilog, and version settings are honored,
+  including when post-parse validation errors render usage.
+- Environment boolean parsing is strict, conversion and validation errors name their source
+  variable, and explicitly empty environment values override defaults.
+- Shared parser type resolution removes positional/optional duplication, and obsolete
+  Pydantic v1 `__root__` filtering was removed.
+
+### Packaging and release automation
+
+- Removed the redundant `wheel` build dependency and packaging-smoke bootstrap entry,
+  applying [PR #3](https://github.com/hotsyk/kliamka/pull/3) proposed by
+  [@webknjaz](https://github.com/webknjaz).
+- Removed the duplicate Ruff target-version setting, incorporating merged
+  [PR #5](https://github.com/hotsyk/kliamka/pull/5) by
+  [@webknjaz](https://github.com/webknjaz); Ruff now derives it from `requires-python`.
+- Distribution construction and smoke tests now run in a separate least-privileged job;
+  only verified artifacts reach the OIDC publishing job, and CI now runs Zizmor workflow
+  security analysis. This implements [issue #4](https://github.com/hotsyk/kliamka/issues/4),
+  requested by [@webknjaz](https://github.com/webknjaz).
+- Package metadata now identifies the modified license as `LicenseRef-MIT-NORUS`, and the
+  setuptools floor is 77 for PEP 639 `license-files` support.
 
 ## 0.6.0
 
