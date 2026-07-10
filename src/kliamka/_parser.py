@@ -145,7 +145,7 @@ def _build_parser_plan(
             kwargs["dest"] = field_value.name or field_name
             optional_args.append((tuple(_get_flag_names(field_value)), kwargs))
 
-    template_parser = argparse.ArgumentParser(add_help=False)
+    template_parser = argparse.ArgumentParser()
     actions = tuple(
         template_parser.add_argument(*flags, **kwargs)
         for flags, kwargs in positional_args + optional_args
@@ -249,6 +249,26 @@ def _add_help_action(parser: argparse.ArgumentParser) -> None:
     parser.add_help = True
 
 
+def _attach_prevalidated_action(
+    parser: argparse.ArgumentParser,
+    template: argparse.Action,
+    container: Any | None = None,
+) -> None:
+    """Attach an Action whose conflicts were checked by the template parser."""
+    action = _copy_action(template)
+    target = container or (
+        parser._optionals if action.option_strings else parser._positionals
+    )
+    target._actions.append(action)
+    setattr(action, "container", target)
+    for option in action.option_strings:
+        target._option_string_actions[option] = action
+        if target._negative_number_matcher.match(option):
+            if not target._has_negative_number_optionals:
+                target._has_negative_number_optionals.append(True)
+    target._group_actions.append(action)
+
+
 def _populate_parser(
     parser: argparse.ArgumentParser,
     arg_class: Type["KliamkaArgClass"],
@@ -256,14 +276,21 @@ def _populate_parser(
     """Populate an ArgumentParser with arguments from a KliamkaArgClass."""
     try:
         actions, exclusive_groups = _build_parser_plan(arg_class)
+        direct_attach = len(parser._actions) == 1
 
         for action in actions:
-            parser._add_action(_copy_action(action))
+            if direct_attach:
+                _attach_prevalidated_action(parser, action)
+            else:
+                parser._add_action(_copy_action(action))
 
         for _group_name, members in exclusive_groups:
             group = parser.add_mutually_exclusive_group()
             for action in members:
-                group._add_action(_copy_action(action))
+                if direct_attach:
+                    _attach_prevalidated_action(parser, action, group)
+                else:
+                    group._add_action(_copy_action(action))
     except ValueError as exc:
         from ._core import KliamkaError
 
