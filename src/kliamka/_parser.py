@@ -204,7 +204,9 @@ def _copy_action(action: argparse.Action) -> argparse.Action:
 @cache
 def _argument_parser_template() -> argparse.ArgumentParser:
     """Create the standard empty parser state once."""
-    return _KliamkaArgumentParser(add_help=False)
+    parser = _KliamkaArgumentParser(add_help=False)
+    parser._kliamka_help_pending = False
+    return parser
 
 
 def _clone_argument_group(
@@ -259,7 +261,6 @@ def _new_argument_parser(
     parser._optionals = _clone_argument_group(template._optionals, parser)
     parser._action_groups.extend((parser._positionals, parser._optionals))
     parser._subparsers = None
-    parser._kliamka_help_pending = False
     return parser
 
 
