@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from copy import copy
 from enum import Enum
 from functools import cache
 from typing import TYPE_CHECKING, Any, Type
@@ -170,6 +169,13 @@ def _clear_parser_plan_cache() -> None:
     _build_parser_plan.cache_clear()
 
 
+def _copy_action(action: argparse.Action) -> argparse.Action:
+    """Reconstruct an Action using the same state update as ``copy.copy``."""
+    clone = object.__new__(type(action))
+    clone.__dict__.update(action.__dict__)
+    return clone
+
+
 @cache
 def _argument_parser_template() -> argparse.ArgumentParser:
     """Create the standard empty parser state once."""
@@ -234,7 +240,7 @@ def _help_action_template() -> argparse.Action:
 
 def _add_help_action(parser: argparse.ArgumentParser) -> None:
     """Attach an independent standard help action to ``parser``."""
-    parser._add_action(copy(_help_action_template()))
+    parser._add_action(_copy_action(_help_action_template()))
     parser.add_help = True
 
 
@@ -247,12 +253,12 @@ def _populate_parser(
         actions, exclusive_groups = _build_parser_plan(arg_class)
 
         for action in actions:
-            parser._add_action(copy(action))
+            parser._add_action(_copy_action(action))
 
         for _group_name, members in exclusive_groups:
             group = parser.add_mutually_exclusive_group()
             for action in members:
-                group._add_action(copy(action))
+                group._add_action(_copy_action(action))
     except ValueError as exc:
         from ._core import KliamkaError
 
