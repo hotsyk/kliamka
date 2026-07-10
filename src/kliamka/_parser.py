@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Type
 
 from ._converters import _resolve_type_converter
 from ._helpers import (
+    _UNSET,
+    _get_arg_dest,
     _get_list_element_type,
     _is_bool_annotation,
     _is_list_type,
@@ -35,9 +37,7 @@ def _build_positional_kwargs(
     if _is_list_type(annotation):
         element_type = _get_list_element_type(annotation)
         kwargs["nargs"] = "*"
-        kwargs["default"] = (
-            field_value.default if field_value.default is not None else []
-        )
+        kwargs["default"] = _UNSET
         if resolved is not None:
             kwargs["type"] = resolved
         else:
@@ -45,7 +45,7 @@ def _build_positional_kwargs(
     else:
         if is_optional or field_value.default is not None:
             kwargs["nargs"] = "?"
-            kwargs["default"] = field_value.default
+            kwargs["default"] = _UNSET
 
         if (
             annotation is not None
@@ -75,14 +75,11 @@ def _build_optional_kwargs(
 
     kwargs: dict[str, Any] = {
         "help": help_text,
-        "default": field_value.default,
+        "default": _UNSET,
     }
 
     if _is_bool_annotation(field_info.annotation):
         kwargs["action"] = "store_true"
-        kwargs["default"] = (
-            field_value.default if field_value.default is not None else False
-        )
     else:
         annotation, _ = _unwrap_optional(field_info.annotation)
         resolved = _resolve_type_converter(annotation, field_value)
@@ -90,9 +87,6 @@ def _build_optional_kwargs(
         if _is_list_type(annotation):
             element_type = _get_list_element_type(annotation)
             kwargs["nargs"] = "*"
-            kwargs["default"] = (
-                field_value.default if field_value.default is not None else []
-            )
             if resolved is not None:
                 kwargs["type"] = resolved
             else:
@@ -150,7 +144,10 @@ def _populate_parser(
 
     for _field_name, field_info, field_value in positional_args:
         kwargs = _build_positional_kwargs(field_info, field_value)
-        parser.add_argument(field_value.flag, **kwargs)
+        dest = _get_arg_dest(field_value.flag, positional=True)
+        if dest != field_value.flag:
+            kwargs.setdefault("metavar", field_value.flag)
+        parser.add_argument(dest, **kwargs)
 
     for _field_name, field_info, field_value in optional_args:
         kwargs = _build_optional_kwargs(field_info, field_value)

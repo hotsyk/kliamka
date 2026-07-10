@@ -66,8 +66,8 @@ class TestKliamkaArgClass:
         args = parser.parse_args(["--verbose"])
         assert args.verbose is True
 
-        args = parser.parse_args([])
-        assert args.verbose is False
+        instance = TestArgs.from_args(parser.parse_args([]))
+        assert instance.verbose is False
 
     def test_create_parser_string(self) -> None:
         class TestArgs(KliamkaArgClass):
@@ -77,8 +77,8 @@ class TestKliamkaArgClass:
         args = parser.parse_args(["--name", "Alice"])
         assert args.name == "Alice"
 
-        args = parser.parse_args([])
-        assert args.name == "default"
+        instance = TestArgs.from_args(parser.parse_args([]))
+        assert instance.name == "default"
 
     def test_from_args(self) -> None:
         class TestArgs(KliamkaArgClass):
@@ -1043,8 +1043,8 @@ class TestShortFlags:
         args = parser.parse_args(["--verbose"])
         assert args.verbose is True
 
-        args = parser.parse_args([])
-        assert args.verbose is False
+        instance = TestArgs.from_args(parser.parse_args([]))
+        assert instance.verbose is False
 
     def test_short_flag_with_value(self) -> None:
         """Test short flag with a value argument."""
@@ -1683,19 +1683,6 @@ class TestProgrammaticArgv:
 
 
 # ── #15: Custom type converters ─────────────────────────────────
-
-
-@pytest.fixture
-def clean_converter_registry():
-    """Snapshot/restore the global converter registry for test isolation."""
-    from kliamka._converters import _CONVERTERS
-
-    snapshot = dict(_CONVERTERS)
-    try:
-        yield
-    finally:
-        _CONVERTERS.clear()
-        _CONVERTERS.update(snapshot)
 
 
 class TestCustomConverters:

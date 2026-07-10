@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import os
-from typing import Any, Callable, Optional, Type, Union
+from typing import Any, Callable, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
 from ._converters import _resolve_type_converter
 from ._helpers import (
+    _UNSET,
+    _get_arg_dest,
     _get_list_element_type,
     _is_bool_annotation,
     _is_list_type,
@@ -176,9 +178,16 @@ class KliamkaArgClass(BaseModel):
     def from_args(cls, args: argparse.Namespace) -> "KliamkaArgClass":
         """Create instance from parsed arguments.
 
+        Each field resolves in priority order: CLI value > environment
+        variable > declared default. Parsers built by :meth:`create_parser`
+        register the ``_UNSET`` sentinel as the argparse default, so an
+        argument explicitly given on the command line always wins — even
+        when its value equals the declared default.
+
         Raises:
-            KliamkaError: If Pydantic validation fails. The error message is
-                simplified (Pydantic prefixes and URLs removed) for CLI display.
+            KliamkaError: If Pydantic validation fails or an environment
+                variable value cannot be converted to the field type. The
+                message is simplified for CLI display.
         """
         kwargs: dict[str, Any] = {}
         for field_name, field_info in cls.model_fields.items():
@@ -187,33 +196,42 @@ class KliamkaArgClass(BaseModel):
                 continue
 
             field_value = field_info.default
-            is_positional = field_value.positional or not field_value.flag.startswith(
-                "-"
-            )
-            if is_positional:
-                arg_name = field_value.flag.replace("-", "_")
-            else:
-                arg_name = field_value.flag.lstrip("-").replace("-", "_")
-
-            cli_value = getattr(args, arg_name, None)
+            arg_name = _get_arg_dest(field_value.flag, field_value.positional)
             annotation = field_info.annotation
 
-            cli_provided = _was_cli_provided(cli_value, annotation, field_value)
+            cli_value = getattr(args, arg_name, _UNSET)
 
-            if cli_provided:
+            if cli_value is not _UNSET:
                 kwargs[field_name] = cli_value
             elif field_value.env and os.environ.get(field_value.env):
                 env_val = os.environ[field_value.env]
-                kwargs[field_name] = _parse_env_value(env_val, annotation, field_value)
+                try:
+                    kwargs[field_name] = _parse_env_value(
+                        env_val, annotation, field_value
+                    )
+                except (argparse.ArgumentTypeError, TypeError, ValueError) as exc:
+                    raise KliamkaError(
+                        f"environment variable {field_value.env}: {exc}"
+                    ) from exc
             else:
-                kwargs[field_name] = (
-                    cli_value if cli_value is not None else field_value.default
-                )
+                kwargs[field_name] = _fallback_default(annotation, field_value)
 
         try:
             return cls(**kwargs)
         except ValidationError as exc:
             raise KliamkaError(_format_validation_error(exc)) from exc
+
+
+def _fallback_default(annotation: Any, field_value: KliamkaArg) -> Any:
+    """Resolve the value for an argument absent from both CLI and env."""
+    if field_value.default is not None:
+        return field_value.default
+    if _is_bool_annotation(annotation):
+        return False
+    unwrapped, _ = _unwrap_optional(annotation)
+    if _is_list_type(unwrapped):
+        return []
+    return None
 
 
 def _parse_env_value(
@@ -242,12 +260,14 @@ def _parse_env_value(
         return value.lower() in ("true", "1", "yes", "on")
 
     # Lists: split first, then convert each element using the resolver.
+    # field_value is threaded through so an explicit per-field converter
+    # applies to each element, matching argparse's per-token behavior.
     if _is_list_type(unwrapped):
         if not value:
             return []
         element_type = _get_list_element_type(unwrapped)
         values = [v.strip() for v in value.split(",")]
-        return [_parse_env_value(v, element_type) for v in values]
+        return [_parse_env_value(v, element_type, field_value) for v in values]
 
     converter = _resolve_type_converter(unwrapped, field_value)
     if converter is not None:
@@ -262,25 +282,3 @@ def _parse_env_value(
             return value
 
     return value
-
-
-def _was_cli_provided(cli_value: Any, annotation: Any, field_value: KliamkaArg) -> bool:
-    """Determine if a CLI value was explicitly provided."""
-    if _is_bool_annotation(annotation):
-        return cli_value is True
-
-    is_list = _is_list_type(annotation) or (
-        annotation is not None
-        and hasattr(annotation, "__origin__")
-        and getattr(annotation, "__origin__", None) is Union
-        and any(
-            _is_list_type(a)
-            for a in getattr(annotation, "__args__", ())
-            if a is not type(None)
-        )
-    )
-
-    if is_list:
-        return bool(cli_value)
-
-    return cli_value is not None and cli_value != field_value.default

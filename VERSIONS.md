@@ -1,5 +1,37 @@
 # Kliamka Version History
 
+## Unreleased
+
+### Bug fixes
+
+- **PEP 604 union support** — `bool | None` / `int | None` annotations (as shown in the
+  README Quick Start) no longer crash `create_parser()` with
+  `ValueError: ... is not callable`; both `typing.Optional[X]` and `X | None` work
+- **Hyphenated positional arguments** — `KliamkaArg("input-file", positional=True)` now
+  round-trips through `from_args()` instead of losing the supplied value
+- **CLI > ENV precedence** — an argument explicitly given on the command line now always
+  wins, even when its value equals the declared default (previously a set env var would
+  silently override it); internally, parsers now register an `UNSET` sentinel as the
+  argparse default and `from_args()` resolves CLI > ENV > default explicitly
+- **Bool flags with `default=True`** — a falsy environment variable (e.g. `DEBUG=false`)
+  now overrides the default as documented
+- **Clean errors for bad environment values** — invalid env var values (failed converters,
+  invalid enum names) now raise `KliamkaError` naming the variable, and render as a
+  standard `error:` line through the decorators instead of a traceback
+- **Subcommand argument collisions fail fast** — defining the same flag in the main class
+  and a subcommand now raises `KliamkaError` at decoration time (argparse silently
+  clobbered the main value); the `_command` destination is reserved
+- **Env-var lists honor per-field `converter=`** — comma-separated env values are now
+  converted per element exactly like CLI tokens
+
+### Behavior notes
+
+- Namespaces returned by a raw `create_parser().parse_args()` now carry the
+  `<kliamka.UNSET>` sentinel (falsy) for arguments that were not provided; defaults are
+  applied by `from_args()`. Code using the decorators or `from_args()` is unaffected.
+- Explicitly passing a list flag with zero values (e.g. `--files`) now counts as
+  a provided empty list and overrides env/default values.
+
 ## 0.6.0
 
 ### New features
