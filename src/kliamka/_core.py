@@ -111,6 +111,12 @@ class KliamkaArg:
         self.converter = converter
         self.name = ""
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+        from ._parser import _clear_parser_plan_cache
+
+        _clear_parser_plan_cache()
+
     def __set_name__(self, owner: Type, name: str) -> None:
         self.name = name
 

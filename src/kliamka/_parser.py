@@ -7,7 +7,7 @@ from enum import Enum
 from functools import cache
 from typing import TYPE_CHECKING, Any, Type
 
-from ._converters import _CONVERTERS, _resolve_type_converter
+from ._converters import _resolve_type_converter
 from ._helpers import (
     _UNSET,
     _get_list_element_type,
@@ -108,38 +108,9 @@ _ParserPlan = tuple[
 ]
 
 
-def _parser_plan_signature(arg_class: Type["KliamkaArgClass"]) -> tuple[Any, ...]:
-    """Describe inputs that affect the reusable argument-construction plan."""
-    from ._core import KliamkaArg  # local import breaks the _core<->_parser cycle
-
-    fields = []
-    for field_name, field_info in arg_class.model_fields.items():
-        field_value = field_info.default
-        if not isinstance(field_value, KliamkaArg):
-            continue
-        fields.append(
-            (
-                field_name,
-                id(field_info.annotation),
-                field_value.flag,
-                field_value.help_text,
-                field_value.default is not None,
-                field_value.positional,
-                field_value.env,
-                field_value.short,
-                field_value.mutually_exclusive,
-                id(field_value.converter),
-                field_value.name,
-            )
-        )
-    converters = tuple((id(tp), id(converter)) for tp, converter in _CONVERTERS.items())
-    return tuple(fields), converters
-
-
 @cache
 def _build_parser_plan(
     arg_class: Type["KliamkaArgClass"],
-    _signature: tuple[Any, ...],
 ) -> _ParserPlan:
     """Compile immutable model metadata into reusable argparse recipes."""
     from ._core import KliamkaArg  # local import breaks the _core<->_parser cycle
@@ -178,15 +149,18 @@ def _build_parser_plan(
     )
 
 
+def _clear_parser_plan_cache() -> None:
+    """Invalidate compiled plans after argument schema or converter changes."""
+    _build_parser_plan.cache_clear()
+
+
 def _populate_parser(
     parser: argparse.ArgumentParser,
     arg_class: Type["KliamkaArgClass"],
 ) -> None:
     """Populate an ArgumentParser with arguments from a KliamkaArgClass."""
     try:
-        positional_args, optional_args, exclusive_groups = _build_parser_plan(
-            arg_class, _parser_plan_signature(arg_class)
-        )
+        positional_args, optional_args, exclusive_groups = _build_parser_plan(arg_class)
 
         for flags, kwargs in positional_args:
             parser.add_argument(*flags, **kwargs)
