@@ -248,7 +248,7 @@ class KliamkaArgClass(BaseModel):
                         if name in namespace_values
                     }
                 try:
-                    return cls.model_validate(model_values)
+                    return cls.__pydantic_validator__.validate_python(model_values)
                 except ValidationError as exc:
                     raise KliamkaError(_format_validation_error(exc)) from exc
 
