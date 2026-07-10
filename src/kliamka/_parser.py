@@ -22,6 +22,20 @@ if TYPE_CHECKING:
     from ._core import KliamkaArg, KliamkaArgClass
 
 
+class _KliamkaArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that materializes its standard help Action on demand."""
+
+    _kliamka_help_pending = False
+
+    def format_usage(self) -> str:
+        _materialize_help_action(self)
+        return super().format_usage()
+
+    def format_help(self) -> str:
+        _materialize_help_action(self)
+        return super().format_help()
+
+
 def _build_help_text(field_value: "KliamkaArg") -> str:
     """Build help text, including an environment fallback hint."""
     help_text = field_value.help_text
@@ -107,7 +121,9 @@ def _get_flag_names(field_value: "KliamkaArg") -> list[str]:
 _ArgumentRecipe = tuple[tuple[str, ...], dict[str, Any]]
 _ParserPlan = tuple[
     tuple[argparse.Action, ...],
+    tuple[argparse.Action, ...],
     tuple[tuple[str, tuple[argparse.Action, ...]], ...],
+    bool,
 ]
 
 
@@ -146,9 +162,13 @@ def _build_parser_plan(
             optional_args.append((tuple(_get_flag_names(field_value)), kwargs))
 
     template_parser = argparse.ArgumentParser()
-    actions = tuple(
+    positional_actions = tuple(
         template_parser.add_argument(*flags, **kwargs)
-        for flags, kwargs in positional_args + optional_args
+        for flags, kwargs in positional_args
+    )
+    optional_actions = tuple(
+        template_parser.add_argument(*flags, **kwargs)
+        for flags, kwargs in optional_args
     )
     group_actions = []
     for name, recipes in exclusive_groups.items():
@@ -161,7 +181,12 @@ def _build_parser_plan(
                 ),
             )
         )
-    return actions, tuple(group_actions)
+    return (
+        positional_actions,
+        optional_actions,
+        tuple(group_actions),
+        bool(template_parser._has_negative_number_optionals),
+    )
 
 
 def _clear_parser_plan_cache() -> None:
@@ -179,7 +204,7 @@ def _copy_action(action: argparse.Action) -> argparse.Action:
 @cache
 def _argument_parser_template() -> argparse.ArgumentParser:
     """Create the standard empty parser state once."""
-    return argparse.ArgumentParser(add_help=False)
+    return _KliamkaArgumentParser(add_help=False)
 
 
 def _clone_argument_group(
@@ -214,7 +239,7 @@ def _new_argument_parser(
 ) -> argparse.ArgumentParser:
     """Clone empty argparse state without repeating locale initialization."""
     template = _argument_parser_template()
-    parser = object.__new__(argparse.ArgumentParser)
+    parser = object.__new__(_KliamkaArgumentParser)
     parser.__dict__ = template.__dict__.copy()
     parser._registries = {
         registry_name: registry.copy()
@@ -234,6 +259,7 @@ def _new_argument_parser(
     parser._optionals = _clone_argument_group(template._optionals, parser)
     parser._action_groups.extend((parser._positionals, parser._optionals))
     parser._subparsers = None
+    parser._kliamka_help_pending = False
     return parser
 
 
@@ -244,35 +270,48 @@ def _help_action_template() -> argparse.Action:
     return template_parser._actions[0]
 
 
-def _add_help_action(parser: argparse.ArgumentParser) -> None:
-    """Attach an independent standard help action to a fresh parser."""
+def _materialize_help_action(parser: _KliamkaArgumentParser) -> None:
+    """Attach a fresh help Action before rendering usage/help output."""
+    if not parser._kliamka_help_pending:
+        return
     action = _copy_action(_help_action_template())
     setattr(action, "container", parser._optionals)
-    parser._actions.append(action)
-    parser._optionals._group_actions.append(action)
+    parser._actions.insert(0, action)
+    parser._optionals._group_actions.insert(0, action)
     for option in action.option_strings:
         parser._option_string_actions[option] = action
+    parser._kliamka_help_pending = False
+
+
+def _add_help_action(parser: argparse.ArgumentParser) -> None:
+    """Register standard help eagerly or lazily for a Kliamka parser."""
+    if isinstance(parser, _KliamkaArgumentParser):
+        action = _help_action_template()
+        for option in action.option_strings:
+            parser._option_string_actions[option] = action
+        parser._kliamka_help_pending = True
+    else:
+        action = _copy_action(_help_action_template())
+        setattr(action, "container", parser._optionals)
+        parser._actions.append(action)
+        parser._optionals._group_actions.append(action)
+        for option in action.option_strings:
+            parser._option_string_actions[option] = action
     parser.add_help = True
 
 
-def _attach_prevalidated_action(
-    parser: argparse.ArgumentParser,
-    template: argparse.Action,
-    container: Any | None = None,
+def _attach_action_batch(
+    templates: tuple[argparse.Action, ...],
+    container: Any,
 ) -> None:
-    """Attach an Action whose conflicts were checked by the template parser."""
-    action = _copy_action(template)
-    target = container or (
-        parser._optionals if action.option_strings else parser._positionals
-    )
-    target._actions.append(action)
-    setattr(action, "container", target)
-    for option in action.option_strings:
-        target._option_string_actions[option] = action
-        if target._negative_number_matcher.match(option):
-            if not target._has_negative_number_optionals:
-                target._has_negative_number_optionals.append(True)
-    target._group_actions.append(action)
+    """Attach prevalidated Action clones to one fresh parser group."""
+    actions = [_copy_action(template) for template in templates]
+    for action in actions:
+        setattr(action, "container", container)
+        for option in action.option_strings:
+            container._option_string_actions[option] = action
+    container._actions.extend(actions)
+    container._group_actions.extend(actions)
 
 
 def _populate_parser(
@@ -281,21 +320,33 @@ def _populate_parser(
 ) -> None:
     """Populate an ArgumentParser with arguments from a KliamkaArgClass."""
     try:
-        actions, exclusive_groups = _build_parser_plan(arg_class)
-        direct_attach = len(parser._actions) == 1
+        (
+            positional_actions,
+            optional_actions,
+            exclusive_groups,
+            has_negative_options,
+        ) = _build_parser_plan(arg_class)
+        direct_attach = (
+            parser._kliamka_help_pending and not parser._actions
+            if isinstance(parser, _KliamkaArgumentParser)
+            else len(parser._actions) == 1
+        )
 
-        for action in actions:
-            if direct_attach:
-                _attach_prevalidated_action(parser, action)
-            else:
+        if direct_attach:
+            _attach_action_batch(positional_actions, parser._positionals)
+            _attach_action_batch(optional_actions, parser._optionals)
+            if has_negative_options and not parser._has_negative_number_optionals:
+                parser._has_negative_number_optionals.append(True)
+        else:
+            for action in positional_actions + optional_actions:
                 parser._add_action(_copy_action(action))
 
         for _group_name, members in exclusive_groups:
             group = parser.add_mutually_exclusive_group()
-            for action in members:
-                if direct_attach:
-                    _attach_prevalidated_action(parser, action, group)
-                else:
+            if direct_attach:
+                _attach_action_batch(members, group)
+            else:
+                for action in members:
                     group._add_action(_copy_action(action))
     except ValueError as exc:
         from ._core import KliamkaError
