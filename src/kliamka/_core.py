@@ -178,8 +178,10 @@ class KliamkaArgClass(BaseModel):
 
     @classmethod
     @cache
-    def _get_cli_field_info(cls) -> tuple[tuple[str, ...], Callable[[Any], Any]]:
-        """Return validated CLI field names and their mapping getter."""
+    def _get_cli_field_info(
+        cls,
+    ) -> tuple[tuple[str, ...], Callable[[Any], Any], bool, bool]:
+        """Return validated and cached metadata for CLI fast-path fields."""
         names = []
         for field_name, field_info in cls.model_fields.items():
             if not isinstance(field_info.default, KliamkaArg):
@@ -191,7 +193,8 @@ class KliamkaArgClass(BaseModel):
             names.append(field_name)
         field_names = tuple(names)
         getter = itemgetter(*field_names) if field_names else lambda _values: ()
-        return field_names, getter
+        ignores_extra = cls.model_config.get("extra") in (None, "ignore")
+        return field_names, getter, len(field_names) == 1, ignores_extra
 
     @classmethod
     def create_parser(cls) -> argparse.ArgumentParser:
@@ -237,14 +240,16 @@ class KliamkaArgClass(BaseModel):
                 message is simplified for CLI display.
         """
         namespace_values = vars(args)
-        cli_field_names, get_cli_values = cls._get_cli_field_info()
+        cli_field_names, get_cli_values, single_cli_field, ignores_extra = (
+            cls._get_cli_field_info()
+        )
         if cli_field_names:
             try:
                 cli_values = get_cli_values(namespace_values)
             except KeyError:
                 pass
             else:
-                if len(cli_field_names) == 1:
+                if single_cli_field:
                     complete = cli_values is not _UNSET
                 else:
                     complete = True
@@ -253,7 +258,7 @@ class KliamkaArgClass(BaseModel):
                             complete = False
                             break
                 if complete:
-                    if cls.model_config.get("extra") in (None, "ignore"):
+                    if ignores_extra:
                         model_values = namespace_values
                     else:
                         model_values = {
