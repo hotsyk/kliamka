@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import os
-from typing import Any, Callable, Optional, Type, Union
+from typing import Any, Callable, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
 from ._converters import _resolve_type_converter
 from ._helpers import (
+    _UNSET,
     _get_list_element_type,
     _is_bool_annotation,
     _is_list_type,
@@ -38,15 +39,37 @@ def _strip_pydantic_prefix(message: str) -> str:
     return message
 
 
-def _format_validation_error(error: ValidationError) -> str:
-    """Format a Pydantic validation error for cleaner CLI output."""
+def _format_validation_error(
+    error: ValidationError,
+    env_sources: Optional[dict[str, str]] = None,
+) -> str:
+    """Format a Pydantic validation error for cleaner CLI output.
+
+    Args:
+        error: The Pydantic validation error to format.
+        env_sources: Mapping of model field names to environment variables that
+            supplied their values.
+    """
+    sources = env_sources or {}
     messages: list[str] = []
     for item in error.errors(include_url=False):
-        location = ".".join(
-            str(part) for part in item.get("loc", ()) if part != "__root__"
-        )
+        location_parts = tuple(item.get("loc", ()))
+        location = ".".join(str(part) for part in location_parts)
         message = _strip_pydantic_prefix(item.get("msg", "Invalid value"))
-        messages.append(f"{location}: {message}" if location else message)
+
+        field_name = str(location_parts[0]) if location_parts else ""
+        env_name = sources.get(field_name)
+        if env_name:
+            label = f"environment variable {env_name}"
+            if location:
+                label += f" ({location})"
+        elif not location and sources:
+            env_names = ", ".join(sorted(set(sources.values())))
+            label = f"environment variable(s) {env_names}"
+        else:
+            label = location
+
+        messages.append(f"{label}: {message}" if label else message)
     return "\n".join(messages) or str(error)
 
 
@@ -176,44 +199,65 @@ class KliamkaArgClass(BaseModel):
     def from_args(cls, args: argparse.Namespace) -> "KliamkaArgClass":
         """Create instance from parsed arguments.
 
+        Each field resolves in priority order: CLI value > environment
+        variable > declared default. Parsers built by :meth:`create_parser`
+        register the ``_UNSET`` sentinel as the argparse default, so an
+        argument explicitly given on the command line always wins — even
+        when its value equals the declared default.
+
         Raises:
-            KliamkaError: If Pydantic validation fails. The error message is
-                simplified (Pydantic prefixes and URLs removed) for CLI display.
+            KliamkaError: If Pydantic validation fails or an environment
+                variable value cannot be converted to the field type. The
+                message is simplified for CLI display.
         """
         kwargs: dict[str, Any] = {}
+        env_sources: dict[str, str] = {}
         for field_name, field_info in cls.model_fields.items():
             if not isinstance(field_info.default, KliamkaArg):
                 kwargs[field_name] = getattr(args, field_name, field_info.default)
                 continue
 
             field_value = field_info.default
-            is_positional = field_value.positional or not field_value.flag.startswith(
-                "-"
-            )
-            if is_positional:
-                arg_name = field_value.flag.replace("-", "_")
-            else:
-                arg_name = field_value.flag.lstrip("-").replace("-", "_")
-
-            cli_value = getattr(args, arg_name, None)
             annotation = field_info.annotation
+            try:
+                _unwrap_optional(annotation)
+            except ValueError as exc:
+                raise KliamkaError(f"{field_name}: {exc}") from exc
 
-            cli_provided = _was_cli_provided(cli_value, annotation, field_value)
+            cli_value = getattr(args, field_name, _UNSET)
 
-            if cli_provided:
+            if cli_value is not _UNSET:
                 kwargs[field_name] = cli_value
-            elif field_value.env and os.environ.get(field_value.env):
-                env_val = os.environ[field_value.env]
-                kwargs[field_name] = _parse_env_value(env_val, annotation, field_value)
+            elif field_value.env and field_value.env in os.environ:
+                env_name = field_value.env
+                env_sources[field_name] = env_name
+                try:
+                    kwargs[field_name] = _parse_env_value(
+                        os.environ[env_name], annotation, field_value
+                    )
+                except (argparse.ArgumentTypeError, TypeError, ValueError) as exc:
+                    raise KliamkaError(
+                        f"environment variable {env_name}: {exc}"
+                    ) from exc
             else:
-                kwargs[field_name] = (
-                    cli_value if cli_value is not None else field_value.default
-                )
+                kwargs[field_name] = _fallback_default(annotation, field_value)
 
         try:
             return cls(**kwargs)
         except ValidationError as exc:
-            raise KliamkaError(_format_validation_error(exc)) from exc
+            raise KliamkaError(_format_validation_error(exc, env_sources)) from exc
+
+
+def _fallback_default(annotation: Any, field_value: KliamkaArg) -> Any:
+    """Resolve the value for an argument absent from both CLI and env."""
+    if field_value.default is not None:
+        return field_value.default
+    if _is_bool_annotation(annotation):
+        return False
+    unwrapped, _ = _unwrap_optional(annotation)
+    if _is_list_type(unwrapped):
+        return []
+    return None
 
 
 def _parse_env_value(
@@ -236,18 +280,28 @@ def _parse_env_value(
 
     unwrapped, _ = _unwrap_optional(annotation)
 
-    # Env-var booleans accept more spellings than argparse converters do,
-    # so keep the short-circuit here instead of routing through the resolver.
+    # Env-var booleans accept common case-insensitive spellings while
+    # rejecting typos instead of silently treating them as false.
     if unwrapped is bool:
-        return value.lower() in ("true", "1", "yes", "on")
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "on"):
+            return True
+        if normalized in ("false", "0", "no", "off"):
+            return False
+        raise ValueError(
+            f"invalid boolean value {value!r}; expected one of "
+            "true, 1, yes, on, false, 0, no, off"
+        )
 
     # Lists: split first, then convert each element using the resolver.
+    # field_value is threaded through so an explicit per-field converter
+    # applies to each element, matching argparse's per-token behavior.
     if _is_list_type(unwrapped):
         if not value:
             return []
         element_type = _get_list_element_type(unwrapped)
         values = [v.strip() for v in value.split(",")]
-        return [_parse_env_value(v, element_type) for v in values]
+        return [_parse_env_value(v, element_type, field_value) for v in values]
 
     converter = _resolve_type_converter(unwrapped, field_value)
     if converter is not None:
@@ -255,32 +309,9 @@ def _parse_env_value(
 
     # Resolver returned None — mirror argparse's convention of using the
     # annotation itself as the converter (e.g. ``int("42")``, ``float("1.5")``).
+    # Conversion failures intentionally propagate so ``from_args`` can attach
+    # the environment variable name to the user-facing error.
     if callable(unwrapped) and unwrapped is not str:
-        try:
-            return unwrapped(value)
-        except (TypeError, ValueError):
-            return value
+        return unwrapped(value)
 
     return value
-
-
-def _was_cli_provided(cli_value: Any, annotation: Any, field_value: KliamkaArg) -> bool:
-    """Determine if a CLI value was explicitly provided."""
-    if _is_bool_annotation(annotation):
-        return cli_value is True
-
-    is_list = _is_list_type(annotation) or (
-        annotation is not None
-        and hasattr(annotation, "__origin__")
-        and getattr(annotation, "__origin__", None) is Union
-        and any(
-            _is_list_type(a)
-            for a in getattr(annotation, "__args__", ())
-            if a is not type(None)
-        )
-    )
-
-    if is_list:
-        return bool(cli_value)
-
-    return cli_value is not None and cli_value != field_value.default

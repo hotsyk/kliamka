@@ -1,87 +1,206 @@
 name: Publish to PyPI
 
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] restricted to successful pushes on main below
     workflows: ["CI"]
     types:
       - completed
     branches: [main]
 
+permissions: {}
+
 jobs:
   check-version:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       version-changed: ${{ steps.version.outputs.changed }}
+      publish-needed: ${{ steps.version.outputs.publish-needed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Get version from pyproject.toml
+      - name: Check release state
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          # Check if this version exists as a git tag
-          if git tag --list | grep -q "^v$VERSION$"; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version $VERSION already exists as a tag"
+          if gh release view "v${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            RELEASE_NEEDED=false
           else
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "New version $VERSION detected"
+            RELEASE_NEEDED=true
           fi
 
-  publish:
+          PUBLISH_NEEDED=$(
+            python - "$VERSION" <<'PY'
+          import sys
+          from urllib.error import HTTPError
+          from urllib.request import urlopen
+
+          try:
+              with urlopen(f"https://pypi.org/pypi/kliamka/{sys.argv[1]}/json", timeout=30):
+                  pass
+          except HTTPError as error:
+              if error.code != 404:
+                  raise
+              print("true")
+          else:
+              print("false")
+          PY
+          )
+
+          echo "publish-needed=$PUBLISH_NEEDED" >> "$GITHUB_OUTPUT"
+          if [[ "$RELEASE_NEEDED" == false && "$PUBLISH_NEEDED" == false ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION is already released"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION needs release=$RELEASE_NEEDED publish=$PUBLISH_NEEDED"
+          fi
+
+  build-distributions:
     needs: check-version
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && needs.check-version.outputs.version-changed == 'true' }}
-    environment:
-      name: pypi
-      url: https://pypi.org/p/kliamka
+    if: ${{ needs.check-version.outputs.version-changed == 'true' }}
     permissions:
-      id-token: write
-      contents: write
+      contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
 
       - name: Install smoke test dependencies
         run: |
           uv venv --python 3.12
           uv pip install pytest
 
-      - name: Smoke test built artifacts
+      - name: Build release distributions
+        run: |
+          rm -rf dist
+          uv build --python .venv/bin/python
+
+      - name: Smoke test release distributions
+        env:
+          KLIAMKA_PACKAGING_DIST: dist
         run: |
           source .venv/bin/activate
           pytest tests/test_packaging_smoke.py -v --tb=short -m packaging
 
-      - name: Create Git tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ needs.check-version.outputs.version }}" -m "Release v${{ needs.check-version.outputs.version }}"
-          git push origin "v${{ needs.check-version.outputs.version }}"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Upload release distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          tag_name: v${{ needs.check-version.outputs.version }}
-          name: Release v${{ needs.check-version.outputs.version }}
-          draft: false
-          prerelease: false
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+  create-release:
+    needs: [check-version, build-distributions]
+    runs-on: ubuntu-latest
+    if: ${{ needs.check-version.outputs.version-changed == 'true' }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Ensure Git tag exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          if TAG_OBJECT_SHA=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${RELEASE_VERSION}" \
+            --jq .object.sha 2>/dev/null); then
+            TAG_OBJECT_TYPE=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${RELEASE_VERSION}" \
+              --jq .object.type)
+            if [[ "$TAG_OBJECT_TYPE" == "tag" ]]; then
+              TAG_TARGET_SHA=$(gh api \
+                "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT_SHA}" \
+                --jq .object.sha)
+            else
+              TAG_TARGET_SHA=$TAG_OBJECT_SHA
+            fi
+
+            if [[ "$TAG_TARGET_SHA" != "$RELEASE_SHA" ]]; then
+              echo "v${RELEASE_VERSION} points to ${TAG_TARGET_SHA}, expected ${RELEASE_SHA}" >&2
+              exit 1
+            fi
+            echo "Tag v${RELEASE_VERSION} already exists at ${RELEASE_SHA}"
+          else
+            TAG_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags" \
+              --method POST \
+              -f tag="v${RELEASE_VERSION}" \
+              -f message="Release v${RELEASE_VERSION}" \
+              -f object="${RELEASE_SHA}" \
+              -f type="commit" \
+              --jq .sha)
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              --method POST \
+              -f ref="refs/tags/v${RELEASE_VERSION}" \
+              -f sha="${TAG_SHA}"
+          fi
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          if gh release view "v${RELEASE_VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "v${RELEASE_VERSION}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "v${RELEASE_VERSION}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Release v${RELEASE_VERSION}" \
+              --generate-notes \
+              --verify-tag
+          fi
+
+  publish:
+    needs: [check-version, build-distributions, create-release]
+    runs-on: ubuntu-latest
+    if: ${{ needs.check-version.outputs.publish-needed == 'true' }}
+    environment:
+      name: pypi
+      url: https://pypi.org/p/kliamka
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download release distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: python-package-distributions
+          path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           print-hash: true
