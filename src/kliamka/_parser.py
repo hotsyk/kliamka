@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 from copy import copy
 from enum import Enum
 from functools import cache
@@ -166,6 +168,42 @@ def _build_parser_plan(
 def _clear_parser_plan_cache() -> None:
     """Invalidate compiled plans after argument schema or converter changes."""
     _build_parser_plan.cache_clear()
+
+
+@cache
+def _argument_parser_template() -> argparse.ArgumentParser:
+    """Create the standard empty parser state once."""
+    return argparse.ArgumentParser(add_help=False)
+
+
+def _new_argument_parser(
+    description: str,
+    prog: str | None = None,
+    usage: str | None = None,
+    epilog: str | None = None,
+) -> argparse.ArgumentParser:
+    """Clone empty argparse state without repeating locale initialization."""
+    template = _argument_parser_template()
+    parser = object.__new__(argparse.ArgumentParser)
+    parser.__dict__ = template.__dict__.copy()
+    parser._registries = {
+        registry_name: registry.copy()
+        for registry_name, registry in template._registries.items()
+    }
+    parser._actions = []
+    parser._option_string_actions = {}
+    parser._action_groups = []
+    parser._mutually_exclusive_groups = []
+    parser._defaults = {}
+    parser._has_negative_number_optionals = []
+    parser.description = description
+    parser.prog = prog if prog is not None else os.path.basename(sys.argv[0])
+    parser.usage = usage
+    parser.epilog = epilog
+    parser._positionals = parser.add_argument_group(template._positionals.title)
+    parser._optionals = parser.add_argument_group(template._optionals.title)
+    parser._subparsers = None
+    return parser
 
 
 @cache
