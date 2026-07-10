@@ -105,7 +105,6 @@ def _get_flag_names(field_value: "KliamkaArg") -> list[str]:
 _ArgumentRecipe = tuple[tuple[str, ...], dict[str, Any]]
 _ParserPlan = tuple[
     tuple[_ArgumentRecipe, ...],
-    tuple[_ArgumentRecipe, ...],
     tuple[tuple[str, tuple[_ArgumentRecipe, ...]], ...],
 ]
 
@@ -145,8 +144,7 @@ def _build_parser_plan(
             optional_args.append((tuple(_get_flag_names(field_value)), kwargs))
 
     return (
-        tuple(positional_args),
-        tuple(optional_args),
+        tuple(positional_args + optional_args),
         tuple((name, tuple(recipes)) for name, recipes in exclusive_groups.items()),
     )
 
@@ -162,12 +160,9 @@ def _populate_parser(
 ) -> None:
     """Populate an ArgumentParser with arguments from a KliamkaArgClass."""
     try:
-        positional_args, optional_args, exclusive_groups = _build_parser_plan(arg_class)
+        arguments, exclusive_groups = _build_parser_plan(arg_class)
 
-        for flags, kwargs in positional_args:
-            parser.add_argument(*flags, **kwargs)
-
-        for flags, kwargs in optional_args:
+        for flags, kwargs in arguments:
             parser.add_argument(*flags, **kwargs)
 
         for _group_name, members in exclusive_groups:
