@@ -168,6 +168,19 @@ def _clear_parser_plan_cache() -> None:
     _build_parser_plan.cache_clear()
 
 
+@cache
+def _help_action_template() -> argparse.Action:
+    """Create the standard argparse help action once."""
+    template_parser = argparse.ArgumentParser()
+    return template_parser._actions[0]
+
+
+def _add_help_action(parser: argparse.ArgumentParser) -> None:
+    """Attach an independent standard help action to ``parser``."""
+    parser._add_action(copy(_help_action_template()))
+    parser.add_help = True
+
+
 def _populate_parser(
     parser: argparse.ArgumentParser,
     arg_class: Type["KliamkaArgClass"],

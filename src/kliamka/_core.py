@@ -18,7 +18,7 @@ from ._helpers import (
     _is_list_type,
     _unwrap_optional,
 )
-from ._parser import _populate_parser
+from ._parser import _add_help_action, _populate_parser
 
 _PYDANTIC_MSG_PREFIXES = (
     "Value error, ",
@@ -201,7 +201,9 @@ class KliamkaArgClass(BaseModel):
         """Create an ArgumentParser from the class definition."""
         meta = cls._get_parser_meta()
         if meta.prog is None and meta.usage is None and meta.epilog is None:
-            parser = argparse.ArgumentParser(description=cls.__doc__ or "")
+            parser = argparse.ArgumentParser(
+                description=cls.__doc__ or "", add_help=False
+            )
         else:
             parser_kwargs: dict[str, Any] = {
                 "description": cls.__doc__ or "",
@@ -212,7 +214,9 @@ class KliamkaArgClass(BaseModel):
                 parser_kwargs["usage"] = meta.usage
             if meta.epilog is not None:
                 parser_kwargs["epilog"] = meta.epilog
-            parser = argparse.ArgumentParser(**parser_kwargs)
+            parser = argparse.ArgumentParser(add_help=False, **parser_kwargs)
+
+        _add_help_action(parser)
 
         if meta.version is not None:
             parser.add_argument(
