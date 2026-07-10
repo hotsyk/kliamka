@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import copy
 from enum import Enum
 from functools import cache
 from typing import TYPE_CHECKING, Any, Type
@@ -104,8 +105,8 @@ def _get_flag_names(field_value: "KliamkaArg") -> list[str]:
 
 _ArgumentRecipe = tuple[tuple[str, ...], dict[str, Any]]
 _ParserPlan = tuple[
-    tuple[_ArgumentRecipe, ...],
-    tuple[tuple[str, tuple[_ArgumentRecipe, ...]], ...],
+    tuple[argparse.Action, ...],
+    tuple[tuple[str, tuple[argparse.Action, ...]], ...],
 ]
 
 
@@ -143,10 +144,23 @@ def _build_parser_plan(
             kwargs["dest"] = field_value.name or field_name
             optional_args.append((tuple(_get_flag_names(field_value)), kwargs))
 
-    return (
-        tuple(positional_args + optional_args),
-        tuple((name, tuple(recipes)) for name, recipes in exclusive_groups.items()),
+    template_parser = argparse.ArgumentParser(add_help=False)
+    actions = tuple(
+        template_parser.add_argument(*flags, **kwargs)
+        for flags, kwargs in positional_args + optional_args
     )
+    group_actions = []
+    for name, recipes in exclusive_groups.items():
+        group = template_parser.add_mutually_exclusive_group()
+        group_actions.append(
+            (
+                name,
+                tuple(
+                    group.add_argument(*flags, **kwargs) for flags, kwargs in recipes
+                ),
+            )
+        )
+    return actions, tuple(group_actions)
 
 
 def _clear_parser_plan_cache() -> None:
@@ -160,15 +174,15 @@ def _populate_parser(
 ) -> None:
     """Populate an ArgumentParser with arguments from a KliamkaArgClass."""
     try:
-        arguments, exclusive_groups = _build_parser_plan(arg_class)
+        actions, exclusive_groups = _build_parser_plan(arg_class)
 
-        for flags, kwargs in arguments:
-            parser.add_argument(*flags, **kwargs)
+        for action in actions:
+            parser._add_action(copy(action))
 
         for _group_name, members in exclusive_groups:
             group = parser.add_mutually_exclusive_group()
-            for flags, kwargs in members:
-                group.add_argument(*flags, **kwargs)
+            for action in members:
+                group._add_action(copy(action))
     except ValueError as exc:
         from ._core import KliamkaError
 
