@@ -242,7 +242,7 @@ def _new_argument_parser(
     """Clone empty argparse state without repeating locale initialization."""
     template = _argument_parser_template()
     parser = object.__new__(_KliamkaArgumentParser)
-    parser.__dict__ = template.__dict__.copy()
+    parser.__dict__.update(template.__dict__)
     parser._registries = {
         registry_name: registry.copy()
         for registry_name, registry in template._registries.items()
