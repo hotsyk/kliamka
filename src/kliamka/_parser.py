@@ -239,8 +239,13 @@ def _help_action_template() -> argparse.Action:
 
 
 def _add_help_action(parser: argparse.ArgumentParser) -> None:
-    """Attach an independent standard help action to ``parser``."""
-    parser._add_action(_copy_action(_help_action_template()))
+    """Attach an independent standard help action to a fresh parser."""
+    action = _copy_action(_help_action_template())
+    setattr(action, "container", parser._optionals)
+    parser._actions.append(action)
+    parser._optionals._group_actions.append(action)
+    for option in action.option_strings:
+        parser._option_string_actions[option] = action
     parser.add_help = True
 
 
