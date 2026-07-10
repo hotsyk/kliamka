@@ -176,6 +176,24 @@ def _argument_parser_template() -> argparse.ArgumentParser:
     return argparse.ArgumentParser(add_help=False)
 
 
+def _clone_argument_group(
+    template: Any,
+    parser: argparse.ArgumentParser,
+) -> Any:
+    """Clone an empty argparse group and bind it to a fresh parser."""
+    group = object.__new__(type(template))
+    group.__dict__ = template.__dict__.copy()
+    group._registries = parser._registries
+    group._actions = parser._actions
+    group._option_string_actions = parser._option_string_actions
+    group._action_groups = []
+    group._mutually_exclusive_groups = parser._mutually_exclusive_groups
+    group._defaults = parser._defaults
+    group._has_negative_number_optionals = parser._has_negative_number_optionals
+    group._group_actions = []
+    return group
+
+
 def _new_argument_parser(
     description: str,
     prog: str | None = None,
@@ -200,8 +218,9 @@ def _new_argument_parser(
     parser.prog = prog if prog is not None else os.path.basename(sys.argv[0])
     parser.usage = usage
     parser.epilog = epilog
-    parser._positionals = parser.add_argument_group(template._positionals.title)
-    parser._optionals = parser.add_argument_group(template._optionals.title)
+    parser._positionals = _clone_argument_group(template._positionals, parser)
+    parser._optionals = _clone_argument_group(template._optionals, parser)
+    parser._action_groups.extend((parser._positionals, parser._optionals))
     parser._subparsers = None
     return parser
 
