@@ -243,24 +243,20 @@ def _new_argument_parser(
     template = _argument_parser_template()
     parser = object.__new__(_KliamkaArgumentParser)
     parser.__dict__.update(template.__dict__)
-    parser.__dict__.update(
-        {
-            "_registries": {
-                registry_name: registry.copy()
-                for registry_name, registry in template._registries.items()
-            },
-            "_actions": [],
-            "_option_string_actions": {},
-            "_action_groups": [],
-            "_mutually_exclusive_groups": [],
-            "_defaults": {},
-            "_has_negative_number_optionals": [],
-            "description": description,
-            "prog": prog if prog is not None else _default_prog(sys.argv[0]),
-            "usage": usage,
-            "epilog": epilog,
-        }
-    )
+    parser._registries = {
+        registry_name: registry.copy()
+        for registry_name, registry in template._registries.items()
+    }
+    parser._actions = []
+    parser._option_string_actions = {}
+    parser._action_groups = []
+    parser._mutually_exclusive_groups = []
+    parser._defaults = {}
+    parser._has_negative_number_optionals = []
+    parser.description = description
+    parser.prog = prog if prog is not None else _default_prog(sys.argv[0])
+    parser.usage = usage
+    parser.epilog = epilog
     parser._positionals = _clone_argument_group(template._positionals, parser)
     parser._optionals = _clone_argument_group(template._optionals, parser)
     parser._action_groups.extend((parser._positionals, parser._optionals))
