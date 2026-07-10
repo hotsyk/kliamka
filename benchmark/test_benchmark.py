@@ -8,11 +8,11 @@ This module benchmarks:
 
 Run with: pytest benchmark/test_benchmark.py -v --benchmark-only
 Or: pytest benchmark/test_benchmark.py -v --benchmark-compare
+Library columns: pytest benchmark/test_benchmark.py --benchmark-compare-libraries
 """
 
 import argparse
 import sys
-from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
@@ -207,14 +207,17 @@ if HAS_TYPER:
 class TestParserCreation:
     """Benchmark parser/class creation time."""
 
+    @pytest.mark.library_benchmark(workload="creation_simple", library="kliamka")
     def test_kliamka_simple_creation(self, benchmark):
         """Benchmark kliamka simple parser creation."""
         benchmark(KliamkaSimpleArgs.create_parser)
 
+    @pytest.mark.library_benchmark(workload="creation_simple", library="argparse")
     def test_argparse_simple_creation(self, benchmark):
         """Benchmark argparse simple parser creation."""
         benchmark(create_argparse_simple)
 
+    @pytest.mark.library_benchmark(workload="creation_simple", library="click")
     @pytest.mark.skipif(not HAS_CLICK, reason="click not installed")
     def test_click_simple_creation(self, benchmark):
         """Benchmark click simple command creation."""
@@ -230,10 +233,12 @@ class TestParserCreation:
 
             return cmd
 
+    @pytest.mark.library_benchmark(workload="creation_complex", library="kliamka")
     def test_kliamka_complex_creation(self, benchmark):
         """Benchmark kliamka complex parser creation."""
         benchmark(KliamkaComplexArgs.create_parser)
 
+    @pytest.mark.library_benchmark(workload="creation_complex", library="argparse")
     def test_argparse_complex_creation(self, benchmark):
         """Benchmark argparse complex parser creation."""
         benchmark(create_argparse_complex)
@@ -247,6 +252,7 @@ class TestParserCreation:
 class TestArgumentParsing:
     """Benchmark argument parsing time."""
 
+    @pytest.mark.library_benchmark(workload="parsing_simple", library="kliamka")
     def test_kliamka_simple_parsing(self, benchmark):
         """Benchmark kliamka simple argument parsing."""
         parser = KliamkaSimpleArgs.create_parser()
@@ -257,11 +263,13 @@ class TestArgumentParsing:
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_simple", library="argparse")
     def test_argparse_simple_parsing(self, benchmark):
         """Benchmark argparse simple argument parsing."""
         parser = create_argparse_simple()
         benchmark(parser.parse_args, SIMPLE_ARGS)
 
+    @pytest.mark.library_benchmark(workload="parsing_simple", library="click")
     @pytest.mark.skipif(not HAS_CLICK, reason="click not installed")
     def test_click_simple_parsing(self, benchmark):
         """Benchmark click simple argument parsing."""
@@ -274,6 +282,7 @@ class TestArgumentParsing:
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_list", library="kliamka")
     def test_kliamka_list_parsing(self, benchmark):
         """Benchmark kliamka list argument parsing."""
         parser = KliamkaListArgs.create_parser()
@@ -284,11 +293,13 @@ class TestArgumentParsing:
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_list", library="argparse")
     def test_argparse_list_parsing(self, benchmark):
         """Benchmark argparse list argument parsing."""
         parser = create_argparse_list()
         benchmark(parser.parse_args, LIST_ARGS)
 
+    @pytest.mark.library_benchmark(workload="parsing_list", library="click")
     @pytest.mark.skipif(not HAS_CLICK, reason="click not installed")
     def test_click_list_parsing(self, benchmark):
         """Benchmark click list argument parsing."""
@@ -296,13 +307,22 @@ class TestArgumentParsing:
 
         runner = CliRunner()
         # Click uses multiple --files options
-        click_list_args = ["--files", "a.txt", "--files", "b.txt", "--files", "c.txt", "--verbose"]
+        click_list_args = [
+            "--files",
+            "a.txt",
+            "--files",
+            "b.txt",
+            "--files",
+            "c.txt",
+            "--verbose",
+        ]
 
         def parse():
             return runner.invoke(click_list, click_list_args)
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_complex", library="kliamka")
     def test_kliamka_complex_parsing(self, benchmark):
         """Benchmark kliamka complex argument parsing."""
         parser = KliamkaComplexArgs.create_parser()
@@ -313,11 +333,13 @@ class TestArgumentParsing:
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_complex", library="argparse")
     def test_argparse_complex_parsing(self, benchmark):
         """Benchmark argparse complex argument parsing."""
         parser = create_argparse_complex()
         benchmark(parser.parse_args, COMPLEX_ARGS)
 
+    @pytest.mark.library_benchmark(workload="parsing_complex", library="click")
     @pytest.mark.skipif(not HAS_CLICK, reason="click not installed")
     def test_click_complex_parsing(self, benchmark):
         """Benchmark click complex argument parsing."""
@@ -345,6 +367,7 @@ class TestArgumentParsing:
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_simple", library="typer")
     @pytest.mark.skipif(not HAS_TYPER, reason="typer not installed")
     def test_typer_simple_parsing(self, benchmark):
         """Benchmark typer simple argument parsing."""
@@ -357,19 +380,29 @@ class TestArgumentParsing:
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_list", library="typer")
     @pytest.mark.skipif(not HAS_TYPER, reason="typer not installed")
     def test_typer_list_parsing(self, benchmark):
         """Benchmark typer list argument parsing."""
         from typer.testing import CliRunner
 
         runner = CliRunner()
-        typer_list_args = ["--files", "a.txt", "--files", "b.txt", "--files", "c.txt", "--verbose"]
+        typer_list_args = [
+            "--files",
+            "a.txt",
+            "--files",
+            "b.txt",
+            "--files",
+            "c.txt",
+            "--verbose",
+        ]
 
         def parse():
             return runner.invoke(typer_list_app, typer_list_args)
 
         benchmark(parse)
 
+    @pytest.mark.library_benchmark(workload="parsing_complex", library="typer")
     @pytest.mark.skipif(not HAS_TYPER, reason="typer not installed")
     def test_typer_complex_parsing(self, benchmark):
         """Benchmark typer complex argument parsing."""
@@ -406,6 +439,7 @@ class TestArgumentParsing:
 class TestFullWorkflow:
     """Benchmark complete workflow: parser creation + parsing."""
 
+    @pytest.mark.library_benchmark(workload="full_simple", library="kliamka")
     def test_kliamka_full_simple(self, benchmark):
         """Benchmark kliamka full simple workflow."""
 
@@ -416,6 +450,7 @@ class TestFullWorkflow:
 
         benchmark(workflow)
 
+    @pytest.mark.library_benchmark(workload="full_simple", library="argparse")
     def test_argparse_full_simple(self, benchmark):
         """Benchmark argparse full simple workflow."""
 
@@ -425,6 +460,7 @@ class TestFullWorkflow:
 
         benchmark(workflow)
 
+    @pytest.mark.library_benchmark(workload="full_complex", library="kliamka")
     def test_kliamka_full_complex(self, benchmark):
         """Benchmark kliamka full complex workflow."""
 
@@ -435,6 +471,7 @@ class TestFullWorkflow:
 
         benchmark(workflow)
 
+    @pytest.mark.library_benchmark(workload="full_complex", library="argparse")
     def test_argparse_full_complex(self, benchmark):
         """Benchmark argparse full complex workflow."""
 
@@ -444,6 +481,7 @@ class TestFullWorkflow:
 
         benchmark(workflow)
 
+    @pytest.mark.library_benchmark(workload="full_simple", library="click")
     @pytest.mark.skipif(not HAS_CLICK, reason="click not installed")
     def test_click_full_simple(self, benchmark):
         """Benchmark click full simple workflow."""
@@ -505,6 +543,7 @@ class TestMemoryFootprint:
 class TestValidation:
     """Benchmark validation overhead (kliamka uses Pydantic)."""
 
+    @pytest.mark.library_benchmark(workload="validation", library="kliamka")
     def test_kliamka_validation(self, benchmark):
         """Benchmark kliamka with Pydantic validation."""
         parser = KliamkaComplexArgs.create_parser()
@@ -512,6 +551,7 @@ class TestValidation:
 
         benchmark(KliamkaComplexArgs.from_args, args)
 
+    @pytest.mark.library_benchmark(workload="validation", library="argparse")
     def test_argparse_no_validation(self, benchmark):
         """Benchmark argparse without validation (baseline)."""
         parser = create_argparse_complex()
@@ -537,6 +577,7 @@ class TestValidation:
 class TestRepeatedParsing:
     """Benchmark repeated parsing (simulating CLI tool invocations)."""
 
+    @pytest.mark.library_benchmark(workload="repeated_100", library="kliamka")
     def test_kliamka_repeated_100(self, benchmark):
         """Benchmark kliamka 100 repeated parsings."""
         parser = KliamkaSimpleArgs.create_parser()
@@ -548,6 +589,7 @@ class TestRepeatedParsing:
 
         benchmark(parse_100)
 
+    @pytest.mark.library_benchmark(workload="repeated_100", library="argparse")
     def test_argparse_repeated_100(self, benchmark):
         """Benchmark argparse 100 repeated parsings."""
         parser = create_argparse_simple()

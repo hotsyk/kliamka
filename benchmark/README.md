@@ -51,6 +51,22 @@ pytest benchmark/test_benchmark.py -v --benchmark-json=benchmark_results.json
 pytest benchmark/test_benchmark.py -v --benchmark-columns=min,max,mean,stddev,median,ops
 ```
 
+### Compare libraries as columns
+```bash
+pytest benchmark/test_benchmark.py -v --benchmark-only --benchmark-compare-libraries
+```
+
+The opt-in summary keeps pytest-benchmark's normal report and adds a median table with
+one row per equivalent workload. Each available library gets its own column, values in
+parentheses are ratios relative to argparse, and `—` marks an unavailable optional
+library.
+
+```text
+Workload         | argparse |          kliamka |             click | typer
+-----------------+----------+------------------+-------------------+------
+Parsing · simple | 10.00 µs | 5.00 µs (0.50×) | 25.00 µs (2.50×) |     —
+```
+
 ## Benchmark Categories
 
 ### Parser Creation
