@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 from functools import cache
+from operator import itemgetter
 from typing import Any, Callable, Optional, Type
 
 from pydantic import BaseModel, ValidationError
@@ -177,8 +178,8 @@ class KliamkaArgClass(BaseModel):
 
     @classmethod
     @cache
-    def _get_cli_field_names(cls) -> tuple[str, ...]:
-        """Return validated CLI-backed field names for the model."""
+    def _get_cli_field_info(cls) -> tuple[tuple[str, ...], Callable[[Any], Any]]:
+        """Return validated CLI field names and their mapping getter."""
         names = []
         for field_name, field_info in cls.model_fields.items():
             if not isinstance(field_info.default, KliamkaArg):
@@ -188,7 +189,9 @@ class KliamkaArgClass(BaseModel):
             except ValueError as exc:
                 raise KliamkaError(f"{field_name}: {exc}") from exc
             names.append(field_name)
-        return tuple(names)
+        field_names = tuple(names)
+        getter = itemgetter(*field_names) if field_names else lambda _values: ()
+        return field_names, getter
 
     @classmethod
     def create_parser(cls) -> argparse.ArgumentParser:
@@ -233,24 +236,34 @@ class KliamkaArgClass(BaseModel):
                 message is simplified for CLI display.
         """
         namespace_values = vars(args)
-        cli_field_names = cls._get_cli_field_names()
+        cli_field_names, get_cli_values = cls._get_cli_field_info()
         if cli_field_names:
-            for name in cli_field_names:
-                if namespace_values.get(name, _UNSET) is _UNSET:
-                    break
+            try:
+                cli_values = get_cli_values(namespace_values)
+            except KeyError:
+                pass
             else:
-                if cls.model_config.get("extra") in (None, "ignore"):
-                    model_values = namespace_values
+                if len(cli_field_names) == 1:
+                    complete = cli_values is not _UNSET
                 else:
-                    model_values = {
-                        name: namespace_values[name]
-                        for name in cls.model_fields
-                        if name in namespace_values
-                    }
-                try:
-                    return cls.__pydantic_validator__.validate_python(model_values)
-                except ValidationError as exc:
-                    raise KliamkaError(_format_validation_error(exc)) from exc
+                    complete = True
+                    for value in cli_values:
+                        if value is _UNSET:
+                            complete = False
+                            break
+                if complete:
+                    if cls.model_config.get("extra") in (None, "ignore"):
+                        model_values = namespace_values
+                    else:
+                        model_values = {
+                            name: namespace_values[name]
+                            for name in cls.model_fields
+                            if name in namespace_values
+                        }
+                    try:
+                        return cls.__pydantic_validator__.validate_python(model_values)
+                    except ValidationError as exc:
+                        raise KliamkaError(_format_validation_error(exc)) from exc
 
         kwargs: dict[str, Any] = {}
         env_sources: dict[str, str] = {}
