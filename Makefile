@@ -1,4 +1,4 @@
-.PHONY: install init-dev run test test-package test-all test-docker test-docker-all lint format clean help
+.PHONY: install init-dev run test test-package test-all test-docker test-docker-all lint format docs docs-serve clean help
 
 VENV := .venv/bin
 PYTHON := $(VENV)/python
@@ -17,6 +17,8 @@ help:
 	@echo "  test-docker-all - Run Docker test matrix for Python 3.11-3.14"
 	@echo "  lint     - Run type checking and linting"
 	@echo "  format   - Format code with ruff"
+	@echo "  docs     - Build documentation with strict link/config checks"
+	@echo "  docs-serve - Serve documentation locally with live reload"
 	@echo "  clean    - Clean build artifacts"
 	@echo "  help     - Show this help message"
 
@@ -54,14 +56,21 @@ lint:
 format:
 	$(PYTHON) -m ruff format src/ tests/
 
+docs:
+	$(PYTHON) -m mkdocs build --strict --clean
+
+docs-serve:
+	$(PYTHON) -m mkdocs serve
+
 init-dev:
 	uv venv
-	uv pip install -e .
+	uv pip install -e ".[docs]"
 	uv pip install pytest mypy ruff
 
 clean:
 	rm -rf build/
 	rm -rf dist/
+	rm -rf site/
 	rm -rf *.egg-info/
 	find . -type d -name __pycache__ -delete
 	find . -type f -name "*.pyc" -delete
