@@ -297,9 +297,22 @@ error: Port must be 1-65535, got 99999
 
 ## Documentation
 
-- `CLAUDE.md` — source of truth for project specifications
-- `docs/TODO.md` — development log and task tracker
-- `docs/20260408_product_requirements.md` — current product requirements and roadmap baseline
+The complete user guide is published at **[hotsyk.github.io/kliamka](https://hotsyk.github.io/kliamka/)** and maintained as Markdown in [`docs/`](docs/).
+
+- [`docs/index.md`](docs/index.md) — documentation home and guide map
+- [`docs/20260710_getting_started.md`](docs/20260710_getting_started.md) — installation and first CLI
+- [`docs/20260710_arguments_and_types.md`](docs/20260710_arguments_and_types.md) — supported annotations, defaults, and options
+- [`docs/20260710_environment_variables.md`](docs/20260710_environment_variables.md) — environment fallback behavior
+- [`docs/20260710_subcommands.md`](docs/20260710_subcommands.md) — Git-style command interfaces
+- [`docs/20260710_converters_and_validation.md`](docs/20260710_converters_and_validation.md) — custom conversion and Pydantic rules
+- [`docs/20260710_parser_customization.md`](docs/20260710_parser_customization.md) — help, versions, direct parsing, and testing
+- [`docs/20260710_api_reference.md`](docs/20260710_api_reference.md) — public API reference
+- [`docs/20260710_examples.md`](docs/20260710_examples.md) — runnable and integrated examples
+- [`docs/20260710_troubleshooting.md`](docs/20260710_troubleshooting.md) — common failures and solutions
+- [`docs/20260710_development.md`](docs/20260710_development.md) — development and Pages deployment
+- [`docs/20260408_product_requirements.md`](docs/20260408_product_requirements.md) — product requirements and roadmap baseline
+
+For detailed project specifications, see `CLAUDE.md`.
 
 ## Development
 
@@ -329,7 +342,9 @@ make install
 | `make test-docker-all` | Run Docker test matrix for Python 3.11–3.14 |
 | `make lint`    | Run type checking and linting     |
 | `make format`  | Format code with ruff             |
-| `make clean`   | Clean build artifacts             |
+| `make docs`    | Strictly build the MkDocs site into `site/` |
+| `make docs-serve` | Serve the documentation locally with live reload |
+| `make clean`   | Clean build and documentation artifacts |
 
 ### Packaging and Compatibility Workflow
 
